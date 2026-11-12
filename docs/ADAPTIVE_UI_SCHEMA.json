@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auragen.local/schemas/adaptive-ui-plan-1.0.json",
+  "title": "AuraGen Adaptive UI Plan",
+  "description": "A data-only layout plan for grouping approved synthetic personal-loan form fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "title", "introduction", "steps"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "\\S"
+    },
+    "introduction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/AdaptiveUiStep"
+      }
+    }
+  },
+  "$defs": {
+    "FieldId": {
+      "type": "string",
+      "enum": [
+        "employmentStatus",
+        "experienceYears",
+        "monthlyTakeHomeIncome",
+        "otherMonthlyIncome",
+        "monthlyExpenses",
+        "currentMonthlyEmi",
+        "activeLoanCount",
+        "requestedLoanAmount",
+        "tenureMonths",
+        "loanPurpose"
+      ]
+    },
+    "AdaptiveUiStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "fieldIds"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["step-1", "step-2", "step-3", "step-4", "step-5"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "pattern": "\\S"
+        },
+        "fieldIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/FieldId"
+          }
+        }
+      }
+    }
+  },
+  "x-global-invariants": [
+    "Step IDs must be unique across the plan.",
+    "Every approved field ID must appear exactly once across all steps.",
+    "The global field-coverage invariant is enforced by application validation; standard JSON Schema does not enforce it across nested arrays."
+  ]
+}
