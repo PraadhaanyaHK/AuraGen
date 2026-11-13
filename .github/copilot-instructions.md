@@ -6,6 +6,11 @@
   workstreams, not separate people or parallel owners.
 - Work sequentially and implement only the task the user requests. Do not start
   future weeks or tasks without explicit direction.
+- Use one module branch at a time, named `module/friction-engine`,
+  `module/code-gen-agent`, `module/schema-security-gate`, or
+  `module/dynamic-renderer`. Start new module work from the latest `main`;
+  merge a completed, verified module branch into `main` before starting the
+  next one.
 - Inspect the worktree before editing. Preserve user changes and do not include
   unrelated files in commits.
 - Keep the ten approved form field IDs, labels, controls, options, and

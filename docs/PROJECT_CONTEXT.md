@@ -89,3 +89,18 @@ npm run build
 See `docs/WORK_LOG.md` for task progress and the latest verified checks. Update
 that log when a task is completed. This context is a concise project record,
 not a complete verbatim archive of past chats.
+
+## Git workflow
+
+The user has chosen module-specific branches, worked sequentially by the solo
+developer. Use these names:
+
+- `module/friction-engine`
+- `module/code-gen-agent`
+- `module/schema-security-gate`
+- `module/dynamic-renderer`
+
+Start module work from the latest `main`, complete and verify it on its module
+branch, then merge it to `main` before starting another module. The branches
+are organizational boundaries, not separate owners. Do not implement modules
+or merge branches until the user requests that work.

@@ -32,5 +32,10 @@ It is not a verbatim transcript.
 
 ## Next
 
-Wait for the user's next task. Do not begin a later task or week without an
-explicit request.
+The user requested a module-branch workflow. Branches should be created from
+the latest `main` using the names and sequential merge process in
+`docs/PROJECT_CONTEXT.md`. No future module implementation was requested in
+that branch-setup request.
+
+Wait for the user's next implementation task. Do not begin a later task or
+week without an explicit request.
