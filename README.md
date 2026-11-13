@@ -45,19 +45,20 @@ These are sequential workstreams for one developer, not separate team owners.
 
 ## Current repository stage
 
-The repository currently contains the Week 1 shared-contract foundation:
+The repository includes the Week 1 shared contracts and the original synthetic
+form renderer:
 
 - The canonical ten-field synthetic form catalogue and safe metadata shape.
 - Versioned Zod contracts for telemetry, friction responses, adaptation
   requests, adaptive UI plans, WebSocket messages, and errors.
 - A 16 KiB WebSocket message limit and exact-once field coverage validation.
+- An original four-section React form and a temporary wizard preview. Both use
+  one React Hook Form instance and the same approved field-component registry.
 - Contract documentation, a portable adaptive-plan JSON Schema, and focused
-  contract tests.
+  contract and renderer tests.
 
-The web app, API service, scoring implementation, live generation, and wizard
-are not implemented yet. They will be added only as their week/task is
-requested; the current small root package avoids introducing a monorepo before
-there are applications to share.
+The API service, scoring implementation, and live generation are not
+implemented yet.
 
 ## Development
 
@@ -65,10 +66,17 @@ Requirements: Node.js 20 or newer and npm 10 or newer.
 
 ```sh
 npm install
+npm run dev
 npm run typecheck
 npm run lint
 npm test
+npm run build
 ```
+
+Open the local URL printed by Vite (by default
+`http://127.0.0.1:5173/`) to see the original form. Use the **Wizard preview**
+switch above the form to preview the temporary step-by-step layout; the same
+form values are retained when switching layouts.
 
 See [docs/CONTRACTS.md](docs/CONTRACTS.md) for message ownership, event names,
 versioning, and payload boundaries. See
