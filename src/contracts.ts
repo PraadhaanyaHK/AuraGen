@@ -238,13 +238,23 @@ export const FINANCIAL_FORM_METADATA: FinancialFormMetadata = {
 
 export const TelemetryCountsSchema = z
   .object({
-    validationErrors: z.number().int().min(0).max(1000),
-    repeatedClicks: z.number().int().min(0).max(1000),
-    hesitations: z.number().int().min(0).max(1000),
-    backtracks: z.number().int().min(0).max(1000),
-    fieldSwitches: z.number().int().min(0).max(1000),
-    pointerCorrections: z.number().int().min(0).max(1000),
-    mouseSamples: z.number().int().min(0).max(1000),
+    focusEvents: z.number().int().min(0),
+    blurEvents: z.number().int().min(0),
+    inputChanges: z.number().int().min(0),
+    validationErrors: z.number().int().min(0),
+    repeatedClicks: z.number().int().min(0),
+    hesitations: z.number().int().min(0),
+    backtracks: z.number().int().min(0),
+    fieldSwitches: z.number().int().min(0),
+    pointerCorrections: z.number().int().min(0),
+    mouseSamples: z.number().int().min(0),
+  })
+  .strict();
+
+export const TelemetryMetricsSchema = z
+  .object({
+    totalHesitationDurationMs: z.number().int().min(0),
+    averageHesitationDurationMs: z.number().int().min(0),
   })
   .strict();
 
@@ -254,6 +264,7 @@ export const TelemetrySummarySchema = z
     windowEnd: z.iso.datetime(),
     windowDurationMs: z.literal(TELEMETRY_WINDOW_MS),
     counts: TelemetryCountsSchema,
+    metrics: TelemetryMetricsSchema,
   })
   .strict()
   .refine(

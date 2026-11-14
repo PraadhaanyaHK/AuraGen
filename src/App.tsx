@@ -12,18 +12,27 @@ import {
   RegisteredField,
   type FormValues,
 } from "./fieldRegistry.js";
+import {
+  useFinancialFormTelemetry,
+  type FinancialFormTelemetryEvents,
+} from "./telemetry.js";
 
 type Presentation = "original" | "wizard";
 
 function OriginalForm({
   form,
+  telemetry,
 }: {
   form: UseFormReturn<FormValues>;
+  telemetry: FinancialFormTelemetryEvents;
 }) {
   const [checked, setChecked] = useState(false);
 
   const onValid = () => setChecked(true);
-  const onInvalid = () => setChecked(false);
+  const onInvalid = () => {
+    setChecked(false);
+    telemetry.validationFailure();
+  };
 
   return (
     <form
@@ -41,12 +50,16 @@ function OriginalForm({
                 definition={definition}
                 control={form.control}
                 error={form.formState.errors[definition.id]?.message}
+                telemetry={telemetry}
               />
             ))}
           </div>
         </section>
       ))}
-      <ValidationAction checked={checked} />
+      <ValidationAction
+        checked={checked}
+        onClick={() => telemetry.click("check-demo-fields")}
+      />
     </form>
   );
 }
@@ -59,8 +72,10 @@ const WIZARD_STEP_DESCRIPTIONS = [
 
 function WizardForm({
   form,
+  telemetry,
 }: {
   form: UseFormReturn<FormValues>;
+  telemetry: FinancialFormTelemetryEvents;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [checked, setChecked] = useState(false);
@@ -70,9 +85,12 @@ function WizardForm({
   const isLastStep = stepIndex === FINANCIAL_FORM_SECTIONS.length - 1;
 
   const goNext = async () => {
+    telemetry.click("wizard-continue");
     const valid = await form.trigger(currentFieldIds);
     if (valid) {
       setStepIndex((current) => Math.min(current + 1, FINANCIAL_FORM_SECTIONS.length - 1));
+    } else {
+      telemetry.validationFailure();
     }
   };
 
@@ -80,7 +98,13 @@ function WizardForm({
     <form
       className="form-card wizard-form"
       noValidate
-      onSubmit={form.handleSubmit(() => setChecked(true), () => setChecked(false))}
+      onSubmit={form.handleSubmit(
+        () => setChecked(true),
+        () => {
+          setChecked(false);
+          telemetry.validationFailure();
+        },
+      )}
     >
       <div className="wizard-progress" aria-label="Wizard progress">
         <span>
@@ -104,6 +128,7 @@ function WizardForm({
               definition={definition}
               control={form.control}
               error={form.formState.errors[definition.id]?.message}
+              telemetry={telemetry}
             />
           ))}
         </div>
@@ -113,12 +138,20 @@ function WizardForm({
           className="button button-secondary"
           type="button"
           disabled={stepIndex === 0}
-          onClick={() => setStepIndex((current) => Math.max(current - 1, 0))}
+          onClick={() => {
+            telemetry.click("wizard-back");
+            telemetry.wizardNavigation(stepIndex, Math.max(stepIndex - 1, 0));
+            setStepIndex((current) => Math.max(current - 1, 0));
+          }}
         >
           Back
         </button>
         {isLastStep ? (
-          <button className="button button-primary" type="submit">
+          <button
+            className="button button-primary"
+            type="submit"
+            onClick={() => telemetry.click("check-demo-fields")}
+          >
             Check demo fields
           </button>
         ) : (
@@ -136,10 +169,16 @@ function WizardForm({
   );
 }
 
-function ValidationAction({ checked }: { checked: boolean }) {
+function ValidationAction({
+  checked,
+  onClick,
+}: {
+  checked: boolean;
+  onClick: () => void;
+}) {
   return (
     <div className="form-footer">
-      <button className="button button-primary" type="submit">
+      <button className="button button-primary" type="submit" onClick={onClick}>
         Check demo fields
       </button>
       {checked && (
@@ -153,6 +192,7 @@ function ValidationAction({ checked }: { checked: boolean }) {
 
 export function App() {
   const [presentation, setPresentation] = useState<Presentation>("original");
+  const { summary, events } = useFinancialFormTelemetry();
   const form = useForm<FormValues>({
     shouldUnregister: false,
     mode: "onBlur",
@@ -222,10 +262,17 @@ export function App() {
       </div>
 
       {presentation === "original" ? (
-        <OriginalForm form={form} />
+        <OriginalForm form={form} telemetry={events} />
       ) : (
-        <WizardForm form={form} />
+        <WizardForm form={form} telemetry={events} />
       )}
+
+      <details className="telemetry-inspector">
+        <summary>Local interaction summary (rolling 30 seconds)</summary>
+        <pre aria-label="Local telemetry summary">
+          {JSON.stringify(summary, null, 2)}
+        </pre>
+      </details>
 
       <footer className="page-footer">
         <span>No backend · No real application · No lending decision</span>

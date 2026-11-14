@@ -45,6 +45,9 @@ const validTelemetry = {
   windowEnd: "2026-11-12T10:00:30.000Z",
   windowDurationMs: 30_000,
   counts: {
+    focusEvents: 0,
+    blurEvents: 0,
+    inputChanges: 0,
     validationErrors: 0,
     repeatedClicks: 0,
     hesitations: 0,
@@ -52,6 +55,10 @@ const validTelemetry = {
     fieldSwitches: 0,
     pointerCorrections: 0,
     mouseSamples: 0,
+  },
+  metrics: {
+    totalHesitationDurationMs: 0,
+    averageHesitationDurationMs: 0,
   },
 };
 

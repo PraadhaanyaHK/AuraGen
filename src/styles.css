@@ -469,6 +469,27 @@ h1 {
   font-size: 10px;
 }
 
+.telemetry-inspector {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #526174;
+  font-size: 12px;
+}
+
+.telemetry-inspector summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.telemetry-inspector pre {
+  overflow: auto;
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
 @media (max-width: 640px) {
   .page-shell {
     width: min(100% - 28px, 980px);
