@@ -70,11 +70,12 @@ specification defines it.
 
 ## Current repository and development
 
-The repository is a single root package, not a monorepo. The current renderer
-is a Vite/React application; it includes an original one-page form and a
-temporary hardcoded wizard preview using the shared catalogue and field
-registry. The API service, friction scoring, live generation, and WebSocket
-integration have not been implemented.
+The repository is a single root package, not a monorepo. The current renderer is a Vite/React application; it includes an original
+one-page form and a temporary hardcoded wizard preview using the shared
+catalogue and field registry. A mock-first Express API, bounded WebSocket
+server skeleton, strict generation service, and internal static-only Babel
+audit module are now present. Friction scoring, browser-to-backend integration,
+and live generation have not been implemented.
 
 Use Node.js 20+ and npm 10+. Common checks:
 

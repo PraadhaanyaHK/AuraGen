@@ -52,6 +52,26 @@ It is not a verbatim transcript.
   wizard-step validation attempt (not once per invalid field in a submission).
 - Added deterministic timestamped event helpers and focused tests.
 
+## Week 2 - Task 1D: Backend foundation and security prototypes
+
+- Added a Node.js/Express API with `/health`, strict `/api/generate`, and a
+  `/ws` skeleton using `ws`, 16 KiB frame limits, Zod message validation, and
+  an integration hook.
+- Added a strict generator input containing canonical form metadata and
+  aggregate friction reasons only. The deterministic mock provider remains
+  the default; generated plans pass the shared Zod schema and exact-once field
+  coverage check before returning. No live key or browser secret is required.
+- Added malformed plan fixtures and backend/API tests, including rejection of
+  value-bearing or extra-property generation requests.
+- Added an internal Babel Parser/Traverse audit for JavaScript/JSX syntax and
+  selected suspicious constructs. The report is static analysis only; audited
+  source is never executed.
+- Updated API build/run scripts, setup docs, and contract documentation.
+- Verification: `npm test` (34 tests), `npm run typecheck`, `npm run lint`,
+  `npm run build`, and compiled API health/generation plus AST smoke checks all
+  passed. `npm audit --omit=dev` reported no production advisories; the full
+  dependency tree has seven moderate development-dependency advisories.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

@@ -66,6 +66,13 @@ validation, required status, executable code, styling, submission behavior or
 financial logic. Renderers must resolve IDs through the approved component
 registry.
 
+The API's `POST /api/generate` body is a strict object containing only
+`metadata` (the canonical `FinancialFormMetadata`) and `frictionReasons` (a
+unique list of aggregate reason codes). The mock provider is the default.
+Generation validates the input, parses the resulting plan with
+`AdaptiveUiPlanSchema`, and checks exact-once field coverage before returning
+it. No endpoint accepts entered form values.
+
 ## WebSocket message envelopes
 
 Every message is a strict JSON object with `protocolVersion`, a UUID
@@ -85,6 +92,18 @@ message size of 16 KiB before JSON parsing, then validate the strict envelope
 and payload. Server-side WebSocket handlers must call `parseClientMessage` for
 every inbound client frame; the browser must call `parseServerMessage` for
 every inbound server frame. Invalid frames are rejected, not coerced.
+The API WebSocket server binds to `/ws`, enforces the same 16 KiB maximum at
+the transport layer, and passes validated messages to an integration hook.
+It is a server skeleton; friction scoring and browser integration are not
+implemented here.
+
+## Static JavaScript/JSX audit
+
+The internal Babel audit parses JavaScript/JSX source and reports syntax
+errors, imports, dynamic evaluation, selected unapproved globals,
+network-capable calls, and suspicious JSX. Its output is explicitly
+**static analysis only**. Audited source is never executed, evaluated, or
+treated as safe based on a successful report.
 
 ## Standard error response
 
