@@ -6,6 +6,7 @@ import {
   AdaptiveUiPlanSchema,
   assertExactFieldCoverage,
   ClientMessageSchema,
+  CONTRACT_VERSION,
   FIELD_IDS,
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_METADATA,
@@ -51,6 +52,7 @@ const validTelemetry = {
     validationErrors: 0,
     repeatedClicks: 0,
     hesitations: 0,
+    prolongedUnchangedHesitations: 0,
     backtracks: 0,
     fieldSwitches: 0,
     pointerCorrections: 0,
@@ -73,7 +75,16 @@ const validFriction = {
     fieldSwitches: 0,
     pointerCorrections: 0,
   },
+  explanations: [
+    { feature: "validationErrors", count: 1, normalizedValue: 0.5, weight: 0.3, weightedContribution: 0.15, included: true, explanation: "One validation error." },
+    { feature: "repeatedClicks", count: 0, normalizedValue: 0, weight: 0.2, weightedContribution: 0, included: true, explanation: "No repeated clicks." },
+    { feature: "hesitations", count: 0, normalizedValue: 0, weight: 0.2, weightedContribution: 0, included: true, explanation: "No prolonged unchanged focus." },
+    { feature: "backtracks", count: 0, normalizedValue: 0, weight: 0.15, weightedContribution: 0, included: true, explanation: "No backtracking." },
+    { feature: "fieldSwitches", count: 0, normalizedValue: 0, weight: 0.1, weightedContribution: 0, included: true, explanation: "No field switching." },
+    { feature: "pointerCorrections", count: 0, normalizedValue: 0, weight: 0.05, weightedContribution: 0, included: false, explanation: "Insufficient mouse samples." },
+  ],
   observedSignals: ["validation-errors"],
+  triggerEligibility: { automatic: true, manual: true, blockers: [] },
   eligibleForAdaptation: true,
 };
 
@@ -127,6 +138,11 @@ describe("telemetry and friction contracts", () => {
         ...validFriction,
         level: "moderate",
       }).success,
+    ).toBe(false);
+    const duplicateExplanation = structuredClone(validFriction);
+    duplicateExplanation.explanations[5] = duplicateExplanation.explanations[4]!;
+    expect(
+      FrictionScoreResponseSchema.safeParse(duplicateExplanation).success,
     ).toBe(false);
   });
 
@@ -203,13 +219,13 @@ describe("adaptive UI plan and exact-once field coverage", () => {
 describe("WebSocket message contracts", () => {
   it("accepts known client and server envelopes", () => {
     const clientMessage = {
-      protocolVersion: "1.0",
+      protocolVersion: CONTRACT_VERSION,
       requestId: "9b530ef4-3c39-4bdb-93ef-5790bcf6c0d5",
       event: "telemetry.summary",
       payload: validTelemetry,
     };
     const serverMessage = {
-      protocolVersion: "1.0",
+      protocolVersion: CONTRACT_VERSION,
       requestId: clientMessage.requestId,
       event: "adaptation.plan",
       payload: makePlan(),
@@ -232,7 +248,7 @@ describe("WebSocket message contracts", () => {
     expect(StandardErrorResponseSchema.safeParse(errorResponse).success).toBe(true);
     expect(
       ServerMessageSchema.safeParse({
-        protocolVersion: "1.0",
+        protocolVersion: CONTRACT_VERSION,
         requestId: clientMessage.requestId,
         event: "error",
         payload: errorResponse,
@@ -248,15 +264,22 @@ describe("WebSocket message contracts", () => {
 
   it("rejects unsupported events, extra envelope properties, and invalid plans", () => {
     const base = {
-      protocolVersion: "1.0",
+      protocolVersion: CONTRACT_VERSION,
       requestId: "9b530ef4-3c39-4bdb-93ef-5790bcf6c0d5",
       payload: validTelemetry,
     };
     expect(ClientMessageSchema.safeParse({ ...base, event: "unknown" }).success).toBe(false);
+    expect(
+      ClientMessageSchema.safeParse({
+        ...base,
+        event: "telemetry.summary",
+        protocolVersion: "1.0",
+      }).success,
+    ).toBe(false);
     expect(ClientMessageSchema.safeParse({ ...base, event: "telemetry.summary", debug: true }).success).toBe(false);
 
     const invalidPlanMessage = {
-      protocolVersion: "1.0",
+      protocolVersion: CONTRACT_VERSION,
       requestId: base.requestId,
       event: "adaptation.plan",
       payload: makePlan(allFields.slice(1)),

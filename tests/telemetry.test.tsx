@@ -70,9 +70,9 @@ describe("financial form telemetry", () => {
       "experienceYears",
       1_000 + REPEATED_CLICK_WINDOW_MS,
     );
-    simulateClick(telemetry, "experienceYears", 3_501);
-    simulateClick(telemetry, "experienceYears", 4_000);
-    simulateClick(telemetry, "wizard-back", 4_000);
+    simulateClick(telemetry, "experienceYears", 3_401);
+    simulateClick(telemetry, "experienceYears", 3_900);
+    simulateClick(telemetry, "wizard-back", 3_900);
 
     expect(telemetry.getSummary(5_000).counts.repeatedClicks).toBe(2);
   });
@@ -89,10 +89,26 @@ describe("financial form telemetry", () => {
     expect(summary.counts.blurEvents).toBe(1);
     expect(summary.counts.inputChanges).toBe(2);
     expect(summary.counts.hesitations).toBe(1);
+    expect(summary.counts.prolongedUnchangedHesitations).toBe(0);
     expect(summary.metrics).toEqual({
       totalHesitationDurationMs: 1_250,
       averageHesitationDurationMs: 1_250,
     });
+  });
+
+  it("counts only unchanged focus durations of at least twelve seconds", () => {
+    const telemetry = new FinancialFormTelemetry();
+    simulateFocus(telemetry, "experienceYears", 1_000);
+    simulateBlur(telemetry, "experienceYears", 12_999);
+    simulateFocus(telemetry, "experienceYears", 20_000);
+    simulateBlur(telemetry, "experienceYears", 32_000);
+    simulateFocus(telemetry, "experienceYears", 40_000);
+    simulateInputChange(telemetry, "experienceYears", 40_001);
+    simulateBlur(telemetry, "experienceYears", 60_000);
+
+    expect(
+      telemetry.getSummary(60_000).counts.prolongedUnchangedHesitations,
+    ).toBe(1);
   });
 
   it("counts switches between approved fields and wizard backtracking", () => {

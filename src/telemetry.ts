@@ -4,9 +4,11 @@ import {
   type FinancialFieldId,
   type TelemetrySummary,
 } from "./contracts.js";
+import { PROVISIONAL_FRICTION_POLICY } from "./frictionPolicy.js";
 
 export const TELEMETRY_SUMMARY_INTERVAL_MS = 5_000;
-export const REPEATED_CLICK_WINDOW_MS = 1_000;
+export const REPEATED_CLICK_WINDOW_MS =
+  PROVISIONAL_FRICTION_POLICY.repeatedClickWindowMs;
 
 export type TelemetryClickTarget =
   | FinancialFieldId
@@ -34,6 +36,7 @@ type ActiveFocus = {
   fieldId: FinancialFieldId;
   focusedAt: number;
   hesitationRecorded: boolean;
+  valueChanged: boolean;
 };
 
 type MouseDirection = {
@@ -49,6 +52,7 @@ const createEmptyCounts = (): TelemetrySummary["counts"] => ({
   validationErrors: 0,
   repeatedClicks: 0,
   hesitations: 0,
+  prolongedUnchangedHesitations: 0,
   backtracks: 0,
   fieldSwitches: 0,
   pointerCorrections: 0,
@@ -83,12 +87,20 @@ export class FinancialFormTelemetry {
       fieldId,
       focusedAt: at,
       hesitationRecorded: false,
+      valueChanged: false,
     };
   }
 
   blur(fieldId: FinancialFieldId, at = Date.now()): void {
     this.add(at, { blurEvents: 1 });
     if (this.activeFocus?.fieldId === fieldId) {
+      const durationMs = Math.max(0, at - this.activeFocus.focusedAt);
+      if (
+        !this.activeFocus.valueChanged &&
+        durationMs >= PROVISIONAL_FRICTION_POLICY.hesitationThresholdMs
+      ) {
+        this.add(at, { prolongedUnchangedHesitations: 1 });
+      }
       this.completeHesitation(at);
       this.activeFocus = undefined;
     }
@@ -97,6 +109,7 @@ export class FinancialFormTelemetry {
   inputChange(fieldId: FinancialFieldId, at = Date.now()): void {
     this.add(at, { inputChanges: 1 });
     if (this.activeFocus?.fieldId === fieldId) {
+      this.activeFocus.valueChanged = true;
       this.completeHesitation(at);
     }
   }

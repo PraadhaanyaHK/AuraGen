@@ -52,6 +52,28 @@ It is not a verbatim transcript.
   wizard-step validation attempt (not once per invalid field in a submission).
 - Added deterministic timestamped event helpers and focused tests.
 
+## Week 2 - Day 2 - Task 2A: Interaction friction score and trigger
+
+- Added a deterministic, provisional IFS formula with centralized weights,
+  normalization counts, score bands, click/hesitation thresholds, pointer
+  sample minimum, window continuity, and cooldown policy. The WebSocket
+  contract version was raised to 1.1 for the new telemetry and score response
+  fields.
+- Preserved existing focus-to-change duration metrics and added an aggregate
+  counter for focus held at least 12 seconds without change before blur.
+  Repeated-click detection now uses the specified 1.2-second window.
+- Added pointer-feature exclusion and weight renormalization for unavailable
+  corrections or fewer than ten mouse samples. Pointer speed is not recorded
+  or scored.
+- Added typed score explanations and automatic/manual trigger eligibility,
+  consecutive-window hysteresis, independent task-signal tracking, 90-second
+  cooldown, automatic opt-out, manual “Simplify now,” and same-window restore
+  suppression.
+- Wired local automatic/manual simplification and restore controls into the
+  renderer; no telemetry or form values are sent to a provider.
+- Verification: `npm test` (39 tests), `npm run typecheck`, and `npm run lint`
+  passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

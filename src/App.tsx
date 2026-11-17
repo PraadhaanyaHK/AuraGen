@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useForm,
   type UseFormReturn,
@@ -6,7 +6,18 @@ import {
 import {
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_SECTIONS,
+  type FrictionScoreResponse,
 } from "./contracts.js";
+import {
+  createAdaptationTriggerState,
+  evaluateAdaptationTrigger,
+  getFrictionScoreResponse,
+  requestManualSimplification,
+  restoreOriginalPresentation,
+  scoreInteractionFriction,
+  setAutomaticAdaptationOverridden,
+  type AdaptationTriggerState,
+} from "./friction.js";
 import {
   getFieldsForSection,
   RegisteredField,
@@ -193,10 +204,87 @@ function ValidationAction({
 export function App() {
   const [presentation, setPresentation] = useState<Presentation>("original");
   const { summary, events } = useFinancialFormTelemetry();
+  const [triggerState, setTriggerState] = useState(
+    createAdaptationTriggerState,
+  );
+  const triggerStateRef = useRef<AdaptationTriggerState>(triggerState);
+  const [frictionResponse, setFrictionResponse] =
+    useState<FrictionScoreResponse | null>(null);
   const form = useForm<FormValues>({
     shouldUnregister: false,
     mode: "onBlur",
   });
+
+  useEffect(() => {
+    const scored = scoreInteractionFriction(summary);
+    const evaluation = evaluateAdaptationTrigger(
+      summary,
+      scored,
+      triggerStateRef.current,
+      Date.now(),
+    );
+    if (!evaluation.windowProcessed) {
+      return;
+    }
+
+    triggerStateRef.current = evaluation.state;
+    setTriggerState(evaluation.state);
+    setFrictionResponse(evaluation.scoreResponse);
+    if (evaluation.triggeredAutomatically) {
+      setPresentation("wizard");
+    }
+  }, [summary]);
+
+  const simplifyNow = () => {
+    const scored = scoreInteractionFriction(summary);
+    const evaluation = requestManualSimplification(
+      summary,
+      scored,
+      triggerStateRef.current,
+      Date.now(),
+    );
+    triggerStateRef.current = evaluation.state;
+    setTriggerState(evaluation.state);
+    setFrictionResponse(evaluation.scoreResponse);
+    if (evaluation.triggeredManually) {
+      setPresentation("wizard");
+    }
+  };
+
+  const restoreOriginal = () => {
+    const nextState = restoreOriginalPresentation(
+      triggerStateRef.current,
+      summary.windowEnd,
+    );
+    triggerStateRef.current = nextState;
+    setTriggerState(nextState);
+    setFrictionResponse(
+      getFrictionScoreResponse(
+        summary,
+        scoreInteractionFriction(summary),
+        nextState,
+        Date.now(),
+      ),
+    );
+    setPresentation("original");
+  };
+
+  const setAutomaticEnabled = (enabled: boolean) => {
+    const nextState = setAutomaticAdaptationOverridden(
+      triggerStateRef.current,
+      !enabled,
+    );
+    triggerStateRef.current = nextState;
+    setTriggerState(nextState);
+    setFrictionResponse(
+      getFrictionScoreResponse(
+        summary,
+        scoreInteractionFriction(summary),
+        nextState,
+        Date.now(),
+      ),
+    );
+  };
 
   return (
     <main className="page-shell">
@@ -235,7 +323,13 @@ export function App() {
           <button
             type="button"
             aria-pressed={presentation === "original"}
-            onClick={() => setPresentation("original")}
+            onClick={() => {
+              if (presentation === "wizard") {
+                restoreOriginal();
+              } else {
+                setPresentation("original");
+              }
+            }}
           >
             Original form
           </button>
@@ -247,7 +341,71 @@ export function App() {
             Wizard preview
           </button>
         </div>
+        <div className="adaptation-actions">
+          <button
+            className="button button-primary"
+            type="button"
+            disabled={presentation === "wizard"}
+            onClick={simplifyNow}
+          >
+            Simplify now
+          </button>
+          {presentation === "wizard" && (
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={restoreOriginal}
+            >
+              Restore original
+            </button>
+          )}
+          <label className="automatic-adaptation-toggle">
+            <input
+              type="checkbox"
+              checked={!triggerState.automaticAdaptationOverridden}
+              onChange={(event) => setAutomaticEnabled(event.target.checked)}
+            />
+            Automatic simplification
+          </label>
+        </div>
       </div>
+
+      {frictionResponse !== null && (
+        <section
+          className="friction-score"
+          aria-label="Provisional interaction friction score"
+        >
+          <div className="friction-score-heading">
+            <div>
+              <p className="toolbar-label">PROVISIONAL INTERACTION FRICTION SCORE</p>
+              <strong>
+                {frictionResponse.score}/100 · {frictionResponse.level}
+              </strong>
+            </div>
+            <p>
+              A research indicator, not a probability or a measure of emotion.
+            </p>
+          </div>
+          <p role="status">
+            {frictionResponse.triggerEligibility.automatic
+              ? "Automatic simplification is eligible."
+              : `Automatic simplification is waiting: ${frictionResponse.triggerEligibility.blockers.join(", ")}.`}
+          </p>
+          <details>
+            <summary>Feature explanations</summary>
+            <ul className="friction-explanations">
+              {frictionResponse.explanations.map((feature) => (
+                <li key={feature.feature}>
+                  <strong>
+                    {feature.feature.replace(/([A-Z])/g, " $1").toLowerCase()}:
+                  </strong>{" "}
+                  {feature.explanation}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
 
       <div className="form-heading">
         <div>
