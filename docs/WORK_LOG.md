@@ -72,6 +72,26 @@ It is not a verbatim transcript.
   passed. `npm audit --omit=dev` reported no production advisories; the full
   dependency tree has seven moderate development-dependency advisories.
 
+## Week 1 readiness review (including existing Week 2 Day 1 foundation)
+
+- Reviewed the form catalogue and validations against the approved synthetic
+  form specification; contract schemas/types, plan coverage, original and
+  wizard behavior, local telemetry, backend, mock generation, and static audit
+  all passed.
+- Fixed two contract/source-of-truth defects: derive section names from the
+  canonical field catalogue, and enforce the documented 0–1000 telemetry
+  counter bounds in Zod. Added boundary and successful/invalid original-form
+  submission tests.
+- Verification: `npm test` (35 tests), `npm run typecheck`, `npm run lint`,
+  and `npm run build` passed. A compiled-server smoke check confirmed startup,
+  `/health`, valid exact-once mock generation, and that the AST audit does not
+  execute side-effecting input.
+- Remaining debt is planned scope, not a Week 1 blocker: friction scoring and
+  browser/backend integration are not implemented; the Babel audit checks
+  selected patterns only and is not a security guarantee. The previously
+  recorded seven moderate development-dependency advisories were not
+  re-audited during this review.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

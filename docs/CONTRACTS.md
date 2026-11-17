@@ -19,7 +19,7 @@ second field catalogue in an app or service.
 
 `FINANCIAL_FORM_FIELDS` is the only source of truth for the ten stable IDs,
 labels, sections, control types, options and validation constraints.
-`FIELD_IDS` and `FIELD_METADATA` are derived from it.
+`FIELD_IDS`, `FIELD_METADATA`, and `FINANCIAL_FORM_SECTIONS` are derived from it.
 
 `FinancialFormMetadata` contains only the fixed form ID, schema version, and
 approved field IDs/labels/sections/control types. It deliberately omits input

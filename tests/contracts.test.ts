@@ -8,6 +8,7 @@ import {
   ClientMessageSchema,
   FIELD_IDS,
   FINANCIAL_FORM_FIELDS,
+  FINANCIAL_FORM_SECTIONS,
   FINANCIAL_FORM_METADATA,
   FinancialFormMetadataSchema,
   FrictionScoreResponseSchema,
@@ -82,6 +83,9 @@ describe("canonical financial form catalogue", () => {
     expect(FINANCIAL_FORM_FIELDS).toHaveLength(10);
     expect(new Set(FIELD_IDS).size).toBe(10);
     expect(FINANCIAL_FORM_METADATA.fields.map(({ id }) => id)).toEqual(FIELD_IDS);
+    expect(FINANCIAL_FORM_SECTIONS).toEqual([
+      ...new Set(FINANCIAL_FORM_FIELDS.map(({ section }) => section)),
+    ]);
   });
 
   it("accepts only canonical metadata, not client-supplied controls or rules", () => {
@@ -106,6 +110,18 @@ describe("canonical financial form catalogue", () => {
 describe("telemetry and friction contracts", () => {
   it("accepts aggregate telemetry and rejects raw values or coordinates", () => {
     expect(TelemetrySummarySchema.safeParse(validTelemetry).success).toBe(true);
+    expect(
+      TelemetrySummarySchema.safeParse({
+        ...validTelemetry,
+        counts: { ...validTelemetry.counts, inputChanges: 1_000 },
+      }).success,
+    ).toBe(true);
+    expect(
+      TelemetrySummarySchema.safeParse({
+        ...validTelemetry,
+        counts: { ...validTelemetry.counts, inputChanges: 1_001 },
+      }).success,
+    ).toBe(false);
     expect(
       TelemetrySummarySchema.safeParse({
         ...validTelemetry,

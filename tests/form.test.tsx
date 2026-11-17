@@ -61,6 +61,24 @@ describe("synthetic personal loan form", () => {
     expect(screen.queryByText("Enter at least 10,000.")).not.toBeInTheDocument();
   });
 
+  it("blocks invalid original-form submission and confirms valid demo values", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const amount = screen.getByLabelText(/Requested loan amount/i);
+    await user.type(amount, "9999");
+    await user.click(screen.getByRole("button", { name: "Check demo fields" }));
+    expect(await screen.findByText("Enter at least 10,000.")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    await user.clear(amount);
+    await user.type(amount, "10000");
+    await user.click(screen.getByRole("button", { name: "Check demo fields" }));
+    expect(
+      await screen.findByRole("status"),
+    ).toHaveTextContent("Nothing was submitted.");
+  });
+
   it("keeps values when switching to and back from the wizard presentation", async () => {
     const user = userEvent.setup();
     render(<App />);
