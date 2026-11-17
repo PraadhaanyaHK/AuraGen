@@ -86,6 +86,20 @@ describe("synthetic personal loan form", () => {
     ).toEqual(["Personal loan details", ...FINANCIAL_FORM_SECTIONS]);
   });
 
+  it("supports manual simplification and restoring with automatic adaptation paused", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Simplify now" }));
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByRole("heading", { name: "Personal loan details" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Automatic simplification" }),
+    ).toBeChecked();
+  });
+
   it("validates the current wizard section before advancing", async () => {
     const user = userEvent.setup();
     render(<App />);

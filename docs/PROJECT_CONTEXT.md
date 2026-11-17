@@ -59,10 +59,10 @@ fields, their stable IDs, labels, sections, control types, select options, and
 validation rules. Do not duplicate or rename these definitions. See
 `docs/FINANCIAL_FORM_SPEC.md` for the readable table and notes.
 
-Contract and protocol versions are currently `1.0`. Adaptive UI plans contain
-3-5 steps, approved step IDs (`step-1` through `step-5`), and must include each
-approved field exactly once. Metadata sent to a generator describes the form
-but never contains entered values.
+The WebSocket contract version is `1.1`; adaptive UI plan/schema version is
+`1.0`. Adaptive UI plans contain 3-5 steps, approved step IDs (`step-1` through
+`step-5`), and must include each approved field exactly once. Metadata sent to
+a generator describes the form but never contains entered values.
 
 The source specification does not define whether fields are required or
 optional. Do not add a requiredness rule or indicator unless a future approved
@@ -73,7 +73,8 @@ specification defines it.
 The repository is a single root package, not a monorepo. The current renderer
 is a Vite/React application; it includes an original one-page form and a
 temporary hardcoded wizard preview using the shared catalogue and field
-registry. The API service, friction scoring, live generation, and WebSocket
+registry. Local provisional friction scoring and automatic/manual adaptation
+triggers are implemented. The API service, live generation, and WebSocket
 integration have not been implemented.
 
 Use Node.js 20+ and npm 10+. Common checks:

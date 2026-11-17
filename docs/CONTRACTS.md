@@ -7,7 +7,9 @@ second field catalogue in an app or service.
 
 ## Contract and protocol versions
 
-- `CONTRACT_VERSION` (`1.0`) versions WebSocket envelopes.
+- `CONTRACT_VERSION` (`1.1`) versions WebSocket envelopes and their payload
+  shapes. Version 1.1 adds the prolonged-unchanged-hesitation telemetry count
+  and explained friction-score eligibility.
 - `ADAPTIVE_UI_SCHEMA_VERSION` (`1.0`) versions the approved form metadata and
   adaptive UI plan.
 - Envelopes with an unsupported protocol version and plans with an unsupported
@@ -31,26 +33,32 @@ definition.
 
 ## Telemetry summary
 
-The browser sends `TelemetrySummary` to the backend. It describes one 30-second
-window using bounded aggregate counters only. It must not contain field values,
+The browser produces a local `TelemetrySummary` for one 30-second window using
+aggregate counters only. A future backend integration may send that summary;
+the current scorer consumes it locally. It must not contain field values,
 typed characters, personal identifiers or raw pointer coordinates. Counts are
 bounded to 0–1000; the window end cannot precede its start.
+The `prolongedUnchangedHesitations` counter records focus durations of at least
+12 seconds only when the field blurs without a value change; the original
+focus-to-first-change duration aggregate remains separate.
 
 ## Friction score response
 
-The backend sends `FrictionScoreResponse` to the browser. The score is an
-integer from 0 to 100 with bands 0–34 low, 35–59 moderate and 60–100 high.
-Feature values are normalized to 0–1. Adaptation eligibility cannot be true
-for a non-high score. The schema defines the response shape, not the scoring
-algorithm or trigger implementation.
+The `FrictionScoreResponse` contains a provisional, deterministic Interaction
+Friction Score, normalized feature values, per-feature explanations, and
+automatic/manual trigger eligibility. It is not a probability or a direct
+measure of emotion. Scoring weights, normalization counts, thresholds, and
+trigger behavior are documented in [FRICTION_SCORING.md](./FRICTION_SCORING.md).
+Automatic eligibility requires two consecutive high windows, an independent
+task signal, no active cooldown, no user override, and no restore suppression.
 
 ## Adaptation request
 
-The browser sends `AdaptationRequest` to the backend when the later trigger
-logic has enough evidence. It contains approved metadata, aggregate telemetry,
-the friction response, at least two consecutive high windows, and one
-independent task signal. It contains no form values. The schema validates
-eligibility but does not implement trigger guards.
+The `AdaptationRequest` contract is for a future browser/backend integration.
+The current trigger consumes summaries locally and does not send requests.
+When used, the request contains approved metadata, aggregate telemetry, the
+friction response, at least two consecutive high windows, and one independent
+task signal. It contains no form values.
 
 ## Adaptive UI plan
 

@@ -214,6 +214,75 @@ h1 {
   box-shadow: 0 1px 3px rgb(21 40 66 / 12%);
 }
 
+.adaptation-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.automatic-adaptation-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #536276;
+  font-size: 11px;
+}
+
+.automatic-adaptation-toggle input {
+  accent-color: #2870ce;
+}
+
+.friction-score {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #536276;
+  font-size: 12px;
+}
+
+.friction-score-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.friction-score-heading .toolbar-label {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.friction-score-heading strong {
+  color: #203047;
+  font-size: 16px;
+  text-transform: capitalize;
+}
+
+.friction-score-heading p {
+  margin: 0;
+  text-align: right;
+}
+
+.friction-score > p {
+  margin: 10px 0;
+}
+
+.friction-score summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.friction-explanations {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
 .form-heading {
   display: flex;
   align-items: flex-end;
@@ -469,6 +538,27 @@ h1 {
   font-size: 10px;
 }
 
+.telemetry-inspector {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #526174;
+  font-size: 12px;
+}
+
+.telemetry-inspector summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.telemetry-inspector pre {
+  overflow: auto;
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
 @media (max-width: 640px) {
   .page-shell {
     width: min(100% - 28px, 980px);
@@ -502,8 +592,21 @@ h1 {
     width: 100%;
   }
 
+  .adaptation-actions {
+    justify-content: flex-start;
+  }
+
   .presentation-switch button {
     flex: 1;
+  }
+
+  .friction-score-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .friction-score-heading p {
+    text-align: left;
   }
 
   .form-heading {

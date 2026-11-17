@@ -51,14 +51,18 @@ form renderer:
 - The canonical ten-field synthetic form catalogue and safe metadata shape.
 - Versioned Zod contracts for telemetry, friction responses, adaptation
   requests, adaptive UI plans, WebSocket messages, and errors.
+- Provisional local Interaction Friction Score calculation with explained
+  features, consecutive-window trigger guards, cooldown, manual simplification,
+  and restore suppression.
 - A 16 KiB WebSocket message limit and exact-once field coverage validation.
 - An original four-section React form and a temporary wizard preview. Both use
   one React Hook Form instance and the same approved field-component registry.
 - Contract documentation, a portable adaptive-plan JSON Schema, and focused
   contract and renderer tests.
 
-The API service, scoring implementation, and live generation are not
-implemented yet.
+The API service and live generation are not implemented yet. Provisional score
+weights and trigger thresholds are documented in
+[docs/FRICTION_SCORING.md](docs/FRICTION_SCORING.md).
 
 ## Development
 
@@ -75,8 +79,10 @@ npm run build
 
 Open the local URL printed by Vite (by default
 `http://127.0.0.1:5173/`) to see the original form. Use the **Wizard preview**
-switch above the form to preview the temporary step-by-step layout; the same
-form values are retained when switching layouts.
+switch above the form to preview the temporary step-by-step layout, or choose
+**Simplify now** for a manual simplification. Automatic simplification can be
+paused with its checkbox; restoring the original layout suppresses the current
+window. The same form values are retained when switching layouts.
 
 See [docs/CONTRACTS.md](docs/CONTRACTS.md) for message ownership, event names,
 versioning, and payload boundaries. See

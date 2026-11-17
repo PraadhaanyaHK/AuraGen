@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useForm,
   type UseFormReturn,
@@ -6,24 +6,44 @@ import {
 import {
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_SECTIONS,
+  type FrictionScoreResponse,
 } from "./contracts.js";
+import {
+  createAdaptationTriggerState,
+  evaluateAdaptationTrigger,
+  getFrictionScoreResponse,
+  requestManualSimplification,
+  restoreOriginalPresentation,
+  scoreInteractionFriction,
+  setAutomaticAdaptationOverridden,
+  type AdaptationTriggerState,
+} from "./friction.js";
 import {
   getFieldsForSection,
   RegisteredField,
   type FormValues,
 } from "./fieldRegistry.js";
+import {
+  useFinancialFormTelemetry,
+  type FinancialFormTelemetryEvents,
+} from "./telemetry.js";
 
 type Presentation = "original" | "wizard";
 
 function OriginalForm({
   form,
+  telemetry,
 }: {
   form: UseFormReturn<FormValues>;
+  telemetry: FinancialFormTelemetryEvents;
 }) {
   const [checked, setChecked] = useState(false);
 
   const onValid = () => setChecked(true);
-  const onInvalid = () => setChecked(false);
+  const onInvalid = () => {
+    setChecked(false);
+    telemetry.validationFailure();
+  };
 
   return (
     <form
@@ -41,12 +61,16 @@ function OriginalForm({
                 definition={definition}
                 control={form.control}
                 error={form.formState.errors[definition.id]?.message}
+                telemetry={telemetry}
               />
             ))}
           </div>
         </section>
       ))}
-      <ValidationAction checked={checked} />
+      <ValidationAction
+        checked={checked}
+        onClick={() => telemetry.click("check-demo-fields")}
+      />
     </form>
   );
 }
@@ -59,8 +83,10 @@ const WIZARD_STEP_DESCRIPTIONS = [
 
 function WizardForm({
   form,
+  telemetry,
 }: {
   form: UseFormReturn<FormValues>;
+  telemetry: FinancialFormTelemetryEvents;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [checked, setChecked] = useState(false);
@@ -70,9 +96,12 @@ function WizardForm({
   const isLastStep = stepIndex === FINANCIAL_FORM_SECTIONS.length - 1;
 
   const goNext = async () => {
+    telemetry.click("wizard-continue");
     const valid = await form.trigger(currentFieldIds);
     if (valid) {
       setStepIndex((current) => Math.min(current + 1, FINANCIAL_FORM_SECTIONS.length - 1));
+    } else {
+      telemetry.validationFailure();
     }
   };
 
@@ -80,7 +109,13 @@ function WizardForm({
     <form
       className="form-card wizard-form"
       noValidate
-      onSubmit={form.handleSubmit(() => setChecked(true), () => setChecked(false))}
+      onSubmit={form.handleSubmit(
+        () => setChecked(true),
+        () => {
+          setChecked(false);
+          telemetry.validationFailure();
+        },
+      )}
     >
       <div className="wizard-progress" aria-label="Wizard progress">
         <span>
@@ -104,6 +139,7 @@ function WizardForm({
               definition={definition}
               control={form.control}
               error={form.formState.errors[definition.id]?.message}
+              telemetry={telemetry}
             />
           ))}
         </div>
@@ -113,12 +149,20 @@ function WizardForm({
           className="button button-secondary"
           type="button"
           disabled={stepIndex === 0}
-          onClick={() => setStepIndex((current) => Math.max(current - 1, 0))}
+          onClick={() => {
+            telemetry.click("wizard-back");
+            telemetry.wizardNavigation(stepIndex, Math.max(stepIndex - 1, 0));
+            setStepIndex((current) => Math.max(current - 1, 0));
+          }}
         >
           Back
         </button>
         {isLastStep ? (
-          <button className="button button-primary" type="submit">
+          <button
+            className="button button-primary"
+            type="submit"
+            onClick={() => telemetry.click("check-demo-fields")}
+          >
             Check demo fields
           </button>
         ) : (
@@ -136,10 +180,16 @@ function WizardForm({
   );
 }
 
-function ValidationAction({ checked }: { checked: boolean }) {
+function ValidationAction({
+  checked,
+  onClick,
+}: {
+  checked: boolean;
+  onClick: () => void;
+}) {
   return (
     <div className="form-footer">
-      <button className="button button-primary" type="submit">
+      <button className="button button-primary" type="submit" onClick={onClick}>
         Check demo fields
       </button>
       {checked && (
@@ -153,10 +203,88 @@ function ValidationAction({ checked }: { checked: boolean }) {
 
 export function App() {
   const [presentation, setPresentation] = useState<Presentation>("original");
+  const { summary, events } = useFinancialFormTelemetry();
+  const [triggerState, setTriggerState] = useState(
+    createAdaptationTriggerState,
+  );
+  const triggerStateRef = useRef<AdaptationTriggerState>(triggerState);
+  const [frictionResponse, setFrictionResponse] =
+    useState<FrictionScoreResponse | null>(null);
   const form = useForm<FormValues>({
     shouldUnregister: false,
     mode: "onBlur",
   });
+
+  useEffect(() => {
+    const scored = scoreInteractionFriction(summary);
+    const evaluation = evaluateAdaptationTrigger(
+      summary,
+      scored,
+      triggerStateRef.current,
+      Date.now(),
+    );
+    if (!evaluation.windowProcessed) {
+      return;
+    }
+
+    triggerStateRef.current = evaluation.state;
+    setTriggerState(evaluation.state);
+    setFrictionResponse(evaluation.scoreResponse);
+    if (evaluation.triggeredAutomatically) {
+      setPresentation("wizard");
+    }
+  }, [summary]);
+
+  const simplifyNow = () => {
+    const scored = scoreInteractionFriction(summary);
+    const evaluation = requestManualSimplification(
+      summary,
+      scored,
+      triggerStateRef.current,
+      Date.now(),
+    );
+    triggerStateRef.current = evaluation.state;
+    setTriggerState(evaluation.state);
+    setFrictionResponse(evaluation.scoreResponse);
+    if (evaluation.triggeredManually) {
+      setPresentation("wizard");
+    }
+  };
+
+  const restoreOriginal = () => {
+    const nextState = restoreOriginalPresentation(
+      triggerStateRef.current,
+      summary.windowEnd,
+    );
+    triggerStateRef.current = nextState;
+    setTriggerState(nextState);
+    setFrictionResponse(
+      getFrictionScoreResponse(
+        summary,
+        scoreInteractionFriction(summary),
+        nextState,
+        Date.now(),
+      ),
+    );
+    setPresentation("original");
+  };
+
+  const setAutomaticEnabled = (enabled: boolean) => {
+    const nextState = setAutomaticAdaptationOverridden(
+      triggerStateRef.current,
+      !enabled,
+    );
+    triggerStateRef.current = nextState;
+    setTriggerState(nextState);
+    setFrictionResponse(
+      getFrictionScoreResponse(
+        summary,
+        scoreInteractionFriction(summary),
+        nextState,
+        Date.now(),
+      ),
+    );
+  };
 
   return (
     <main className="page-shell">
@@ -195,7 +323,13 @@ export function App() {
           <button
             type="button"
             aria-pressed={presentation === "original"}
-            onClick={() => setPresentation("original")}
+            onClick={() => {
+              if (presentation === "wizard") {
+                restoreOriginal();
+              } else {
+                setPresentation("original");
+              }
+            }}
           >
             Original form
           </button>
@@ -207,7 +341,71 @@ export function App() {
             Wizard preview
           </button>
         </div>
+        <div className="adaptation-actions">
+          <button
+            className="button button-primary"
+            type="button"
+            disabled={presentation === "wizard"}
+            onClick={simplifyNow}
+          >
+            Simplify now
+          </button>
+          {presentation === "wizard" && (
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={restoreOriginal}
+            >
+              Restore original
+            </button>
+          )}
+          <label className="automatic-adaptation-toggle">
+            <input
+              type="checkbox"
+              checked={!triggerState.automaticAdaptationOverridden}
+              onChange={(event) => setAutomaticEnabled(event.target.checked)}
+            />
+            Automatic simplification
+          </label>
+        </div>
       </div>
+
+      {frictionResponse !== null && (
+        <section
+          className="friction-score"
+          aria-label="Provisional interaction friction score"
+        >
+          <div className="friction-score-heading">
+            <div>
+              <p className="toolbar-label">PROVISIONAL INTERACTION FRICTION SCORE</p>
+              <strong>
+                {frictionResponse.score}/100 · {frictionResponse.level}
+              </strong>
+            </div>
+            <p>
+              A research indicator, not a probability or a measure of emotion.
+            </p>
+          </div>
+          <p role="status">
+            {frictionResponse.triggerEligibility.automatic
+              ? "Automatic simplification is eligible."
+              : `Automatic simplification is waiting: ${frictionResponse.triggerEligibility.blockers.join(", ")}.`}
+          </p>
+          <details>
+            <summary>Feature explanations</summary>
+            <ul className="friction-explanations">
+              {frictionResponse.explanations.map((feature) => (
+                <li key={feature.feature}>
+                  <strong>
+                    {feature.feature.replace(/([A-Z])/g, " $1").toLowerCase()}:
+                  </strong>{" "}
+                  {feature.explanation}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
 
       <div className="form-heading">
         <div>
@@ -222,10 +420,17 @@ export function App() {
       </div>
 
       {presentation === "original" ? (
-        <OriginalForm form={form} />
+        <OriginalForm form={form} telemetry={events} />
       ) : (
-        <WizardForm form={form} />
+        <WizardForm form={form} telemetry={events} />
       )}
+
+      <details className="telemetry-inspector">
+        <summary>Local interaction summary (rolling 30 seconds)</summary>
+        <pre aria-label="Local telemetry summary">
+          {JSON.stringify(summary, null, 2)}
+        </pre>
+      </details>
 
       <footer className="page-footer">
         <span>No backend · No real application · No lending decision</span>

@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { PROVISIONAL_FRICTION_POLICY } from "./frictionPolicy.js";
 
-export const CONTRACT_VERSION = "1.0" as const;
+export const CONTRACT_VERSION = "1.1" as const;
 export const ADAPTIVE_UI_SCHEMA_VERSION = "1.0" as const;
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 16 * 1024;
 export const TELEMETRY_WINDOW_MS = 30_000;
@@ -238,13 +239,24 @@ export const FINANCIAL_FORM_METADATA: FinancialFormMetadata = {
 
 export const TelemetryCountsSchema = z
   .object({
-    validationErrors: z.number().int().min(0).max(1000),
-    repeatedClicks: z.number().int().min(0).max(1000),
-    hesitations: z.number().int().min(0).max(1000),
-    backtracks: z.number().int().min(0).max(1000),
-    fieldSwitches: z.number().int().min(0).max(1000),
-    pointerCorrections: z.number().int().min(0).max(1000),
-    mouseSamples: z.number().int().min(0).max(1000),
+    focusEvents: z.number().int().min(0),
+    blurEvents: z.number().int().min(0),
+    inputChanges: z.number().int().min(0),
+    validationErrors: z.number().int().min(0),
+    repeatedClicks: z.number().int().min(0),
+    hesitations: z.number().int().min(0),
+    prolongedUnchangedHesitations: z.number().int().min(0),
+    backtracks: z.number().int().min(0),
+    fieldSwitches: z.number().int().min(0),
+    pointerCorrections: z.number().int().min(0),
+    mouseSamples: z.number().int().min(0),
+  })
+  .strict();
+
+export const TelemetryMetricsSchema = z
+  .object({
+    totalHesitationDurationMs: z.number().int().min(0),
+    averageHesitationDurationMs: z.number().int().min(0),
   })
   .strict();
 
@@ -254,6 +266,7 @@ export const TelemetrySummarySchema = z
     windowEnd: z.iso.datetime(),
     windowDurationMs: z.literal(TELEMETRY_WINDOW_MS),
     counts: TelemetryCountsSchema,
+    metrics: TelemetryMetricsSchema,
   })
   .strict()
   .refine(
@@ -277,11 +290,50 @@ export const FrictionFeatureSchema = z
 
 export const FrictionLevelSchema = z.enum(["low", "moderate", "high"]);
 
+export const FrictionFeatureExplanationSchema = z
+  .object({
+    feature: z.enum([
+      "validationErrors",
+      "repeatedClicks",
+      "hesitations",
+      "backtracks",
+      "fieldSwitches",
+      "pointerCorrections",
+    ]),
+    count: z.number().int().min(0),
+    normalizedValue: z.number().min(0).max(1),
+    weight: z.number().min(0).max(1),
+    weightedContribution: z.number().min(0).max(1),
+    included: z.boolean(),
+    explanation: z.string().trim().min(1).max(180),
+  })
+  .strict();
+
+export const FrictionTriggerBlockerSchema = z.enum([
+  "score-below-high",
+  "awaiting-second-high-window",
+  "independent-task-signal-required",
+  "cooldown-active",
+  "automatic-adaptation-overridden",
+  "window-already-restored",
+  "awaiting-next-window",
+  "window-already-processed",
+]);
+
+export const FrictionTriggerEligibilitySchema = z
+  .object({
+    automatic: z.boolean(),
+    manual: z.boolean(),
+    blockers: z.array(FrictionTriggerBlockerSchema).max(8),
+  })
+  .strict();
+
 export const FrictionScoreResponseSchema = z
   .object({
     score: z.number().int().min(0).max(100),
     level: FrictionLevelSchema,
     features: FrictionFeatureSchema,
+    explanations: z.array(FrictionFeatureExplanationSchema).length(6),
     observedSignals: z
       .array(
         z.enum([
@@ -294,26 +346,65 @@ export const FrictionScoreResponseSchema = z
         ]),
       )
       .max(6),
+    triggerEligibility: FrictionTriggerEligibilitySchema,
     eligibleForAdaptation: z.boolean(),
   })
   .strict()
-  .superRefine(({ score, level, eligibleForAdaptation }, context) => {
-    const expectedLevel = score < 35 ? "low" : score < 60 ? "moderate" : "high";
-    if (level !== expectedLevel) {
-      context.addIssue({
-        code: "custom",
-        message: `Score ${score} must use the ${expectedLevel} level`,
-        path: ["level"],
-      });
-    }
-    if (eligibleForAdaptation && expectedLevel !== "high") {
-      context.addIssue({
-        code: "custom",
-        message: "Only a high friction score can be eligible for adaptation",
-        path: ["eligibleForAdaptation"],
-      });
-    }
-  });
+  .superRefine(
+    (
+      {
+        score,
+        level,
+        explanations,
+        eligibleForAdaptation,
+        triggerEligibility,
+      },
+      context,
+    ) => {
+      const expectedLevel =
+        score <= PROVISIONAL_FRICTION_POLICY.bands.lowMaximum
+          ? "low"
+          : score <= PROVISIONAL_FRICTION_POLICY.bands.moderateMaximum
+            ? "moderate"
+            : "high";
+      if (level !== expectedLevel) {
+        context.addIssue({
+          code: "custom",
+          message: `Score ${score} must use the ${expectedLevel} level`,
+          path: ["level"],
+        });
+      }
+      const explainedFeatures = new Set<string>();
+      for (const [index, explanation] of explanations.entries()) {
+        if (explainedFeatures.has(explanation.feature)) {
+          context.addIssue({
+            code: "custom",
+            message: `Duplicate feature explanation: ${explanation.feature}`,
+            path: ["explanations", index, "feature"],
+          });
+        }
+        explainedFeatures.add(explanation.feature);
+      }
+      if (eligibleForAdaptation !== triggerEligibility.automatic) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "eligibleForAdaptation must match automatic trigger eligibility",
+          path: ["eligibleForAdaptation"],
+        });
+      }
+      if (
+        eligibleForAdaptation &&
+        expectedLevel !== "high"
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Only a high friction score can be eligible for adaptation",
+          path: ["eligibleForAdaptation"],
+        });
+      }
+    },
+  );
 
 export type FrictionScoreResponse = z.infer<
   typeof FrictionScoreResponseSchema

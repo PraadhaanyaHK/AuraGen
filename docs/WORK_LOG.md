@@ -30,12 +30,51 @@ It is not a verbatim transcript.
 - Latest verification: `npm test` (18 tests), `npm run typecheck`,
   `npm run lint`, and `npm run build` all passed.
 
-## Next
+## Week 1 - Task 1C: Browser telemetry tracker
 
-The user requested a module-branch workflow. Branches should be created from
-the latest `main` using the names and sequential merge process in
-`docs/PROJECT_CONTEXT.md`. No future module implementation was requested in
-that branch-setup request.
+- Added a reusable in-memory telemetry service and React hook scoped to the
+  financial form; it publishes a rolling 30-second aggregate summary every
+  five seconds and clears timers/state on disable or unmount.
+- Tracks focus, blur, value-free input-change occurrences, validation failures,
+  repeated clicks, field switches, focus-to-first-change/blur duration,
+  wizard backtracking, and mouse-only movement-direction corrections.
+- Added a local summary inspector; no network, WebSocket, or persistence
+  integration was added.
+- Telemetry contract summaries contain timestamps, counters, and aggregate
+  hesitation-duration metrics only. Raw typed values and pointer coordinates
+  are not read by or retained in the tracker.
+- Known thresholds: repeated clicks are consecutive clicks on the same form
+  field/action within 1 second; mouse corrections are direction reversals
+  within 500 milliseconds. Hesitation is measured from focus to first change,
+  or to blur if no change occurred. Wizard backtracks are counted only when
+  navigating to a lower step index. Validation failures count once per failed
+  field blur when its current value is invalid, and once per failed submit or
+  wizard-step validation attempt (not once per invalid field in a submission).
+- Added deterministic timestamped event helpers and focused tests.
+
+## Week 2 - Day 2 - Task 2A: Interaction friction score and trigger
+
+- Added a deterministic, provisional IFS formula with centralized weights,
+  normalization counts, score bands, click/hesitation thresholds, pointer
+  sample minimum, window continuity, and cooldown policy. The WebSocket
+  contract version was raised to 1.1 for the new telemetry and score response
+  fields.
+- Preserved existing focus-to-change duration metrics and added an aggregate
+  counter for focus held at least 12 seconds without change before blur.
+  Repeated-click detection now uses the specified 1.2-second window.
+- Added pointer-feature exclusion and weight renormalization for unavailable
+  corrections or fewer than ten mouse samples. Pointer speed is not recorded
+  or scored.
+- Added typed score explanations and automatic/manual trigger eligibility,
+  consecutive-window hysteresis, independent task-signal tracking, 90-second
+  cooldown, automatic opt-out, manual “Simplify now,” and same-window restore
+  suppression.
+- Wired local automatic/manual simplification and restore controls into the
+  renderer; no telemetry or form values are sent to a provider.
+- Verification: `npm test` (39 tests), `npm run typecheck`, and `npm run lint`
+  passed.
+
+## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
 week without an explicit request.

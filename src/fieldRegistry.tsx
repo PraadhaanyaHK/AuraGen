@@ -3,6 +3,9 @@ import {
   FINANCIAL_FORM_FIELDS,
   type FinancialFieldId,
 } from "./contracts.js";
+import type {
+  FinancialFormTelemetryEvents,
+} from "./telemetry.js";
 
 type CatalogueField = (typeof FINANCIAL_FORM_FIELDS)[number];
 
@@ -14,6 +17,7 @@ type FieldInputProps = {
   definition: CatalogueField;
   control: Control<FormValues>;
   error?: string;
+  telemetry?: FinancialFormTelemetryEvents;
 };
 
 function getHelperText(definition: CatalogueField): string {
@@ -75,6 +79,18 @@ function validateField(
   return true;
 }
 
+function handleFieldBlur(
+  definition: CatalogueField,
+  field: { onBlur: () => void; value: unknown },
+  telemetry?: FinancialFormTelemetryEvents,
+): void {
+  field.onBlur();
+  telemetry?.blur(definition.id);
+  if (validateField(definition, field.value) !== true) {
+    telemetry?.validationFailure();
+  }
+}
+
 function FieldShell({
   definition,
   error,
@@ -100,7 +116,7 @@ function FieldShell({
 }
 
 function SelectInput(props: FieldInputProps) {
-  const { definition, control, error } = props;
+  const { definition, control, error, telemetry } = props;
   if (definition.controlType !== "select") {
     throw new Error(`Select input registry mismatch for ${definition.id}.`);
   }
@@ -116,6 +132,14 @@ function SelectInput(props: FieldInputProps) {
             {...field}
             id={definition.id}
             value={typeof field.value === "string" ? field.value : ""}
+            onFocus={() => telemetry?.focus(definition.id)}
+            onBlur={() => handleFieldBlur(definition, field, telemetry)}
+            onChange={(event) => {
+              field.onChange(event);
+              telemetry?.inputChange(definition.id);
+            }}
+            onClick={() => telemetry?.click(definition.id)}
+            onPointerMove={(event) => telemetry?.pointerMove(event)}
             aria-invalid={Boolean(error)}
             aria-describedby={`${definition.id}-hint${error ? ` ${definition.id}-error` : ""}`}
           >
@@ -133,7 +157,7 @@ function SelectInput(props: FieldInputProps) {
 }
 
 function NumberInput(props: FieldInputProps) {
-  const { definition, control, error } = props;
+  const { definition, control, error, telemetry } = props;
   if (
     definition.controlType !== "number" ||
     definition.validation.kind !== "number"
@@ -156,11 +180,16 @@ function NumberInput(props: FieldInputProps) {
             max={definition.validation.max}
             step={definition.validation.integer ? 1 : "any"}
             value={typeof field.value === "number" ? field.value : ""}
-            onChange={(event) =>
+            onFocus={() => telemetry?.focus(definition.id)}
+            onBlur={() => handleFieldBlur(definition, field, telemetry)}
+            onChange={(event) => {
               field.onChange(
                 event.target.value === "" ? undefined : Number(event.target.value),
-              )
-            }
+              );
+              telemetry?.inputChange(definition.id);
+            }}
+            onClick={() => telemetry?.click(definition.id)}
+            onPointerMove={(event) => telemetry?.pointerMove(event)}
             aria-invalid={Boolean(error)}
             aria-describedby={`${definition.id}-hint${error ? ` ${definition.id}-error` : ""}`}
           />
@@ -171,7 +200,7 @@ function NumberInput(props: FieldInputProps) {
 }
 
 function CurrencyInput(props: FieldInputProps) {
-  const { definition, control, error } = props;
+  const { definition, control, error, telemetry } = props;
   if (
     definition.controlType !== "currency" ||
     definition.validation.kind !== "number"
@@ -197,11 +226,16 @@ function CurrencyInput(props: FieldInputProps) {
               step="any"
               inputMode="decimal"
               value={typeof field.value === "number" ? field.value : ""}
-              onChange={(event) =>
+              onFocus={() => telemetry?.focus(definition.id)}
+              onBlur={() => handleFieldBlur(definition, field, telemetry)}
+              onChange={(event) => {
                 field.onChange(
                   event.target.value === "" ? undefined : Number(event.target.value),
-                )
-              }
+                );
+                telemetry?.inputChange(definition.id);
+              }}
+              onClick={() => telemetry?.click(definition.id)}
+              onPointerMove={(event) => telemetry?.pointerMove(event)}
               aria-label={`${definition.label}, INR`}
               aria-invalid={Boolean(error)}
               aria-describedby={`${definition.id}-hint${error ? ` ${definition.id}-error` : ""}`}
@@ -234,6 +268,7 @@ export function RegisteredField({
   definition,
   control,
   error,
+  telemetry,
 }: FieldInputProps) {
   const InputComponent = INPUT_COMPONENTS[definition.id];
   return (
@@ -241,6 +276,7 @@ export function RegisteredField({
       definition={definition}
       control={control}
       error={error}
+      telemetry={telemetry}
     />
   );
 }
