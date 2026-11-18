@@ -34,10 +34,11 @@ definition.
 ## Telemetry summary
 
 The browser produces a local `TelemetrySummary` for one 30-second window using
-aggregate counters only. A future backend integration may send that summary;
-the current scorer consumes it locally. It must not contain field values,
-typed characters, personal identifiers or raw pointer coordinates. Counts are
-bounded to 0–1000; the window end cannot precede its start.
+aggregate counters only. It sends one summary every five seconds to the
+separate WebSocket service; no individual browser events are transmitted. The
+summary must not contain field values, typed characters, personal identifiers
+or raw pointer coordinates. Counts are bounded to 0–1000; the window end
+cannot precede its start.
 The `prolongedUnchangedHesitations` counter records focus durations of at least
 12 seconds only when the field blurs without a value change; the original
 focus-to-first-change duration aggregate remains separate.
@@ -54,11 +55,12 @@ task signal, no active cooldown, no user override, and no restore suppression.
 
 ## Adaptation request
 
-The `AdaptationRequest` contract is for a future browser/backend integration.
-The current trigger consumes summaries locally and does not send requests.
-When used, the request contains approved metadata, aggregate telemetry, the
-friction response, at least two consecutive high windows, and one independent
-task signal. It contains no form values.
+The `AdaptationRequest` contract is reserved for a future generation
+integration. The telemetry service currently returns trigger eligibility in
+the friction score response and does not send or accept adaptation requests.
+When enabled, the request must contain approved metadata, aggregate telemetry,
+the friction response, at least two consecutive high windows, and one
+independent task signal. It must not contain form values.
 
 ## Adaptive UI plan
 
@@ -82,9 +84,9 @@ and additional properties are rejected.
 
 | Direction | Event | Payload | Sender → consumer |
 |---|---|---|---|
-| Client → server | `telemetry.summary` | `TelemetrySummary` | Browser → API |
-| Client → server | `adaptation.request` | `AdaptationRequest` | Browser → API |
-| Server → client | `friction.score` | `FrictionScoreResponse` | API → browser |
+| Client → server | `telemetry.summary` | `TelemetrySummary` | Browser → WebSocket service |
+| Client → server | `adaptation.request` | `AdaptationRequest` | Reserved; not enabled by the telemetry service |
+| Server → client | `friction.score` | `FrictionScoreResponse` | WebSocket service → browser |
 | Server → client | `adaptation.plan` | `AdaptiveUiPlan` | API → browser |
 | Server → client | `error` | `StandardErrorResponse` | API → browser |
 
@@ -93,6 +95,13 @@ message size of 16 KiB before JSON parsing, then validate the strict envelope
 and payload. Server-side WebSocket handlers must call `parseClientMessage` for
 every inbound client frame; the browser must call `parseServerMessage` for
 every inbound server frame. Invalid frames are rejected, not coerced.
+
+The telemetry service scopes trigger hysteresis and duplicate request tracking
+to the live socket session and keeps no telemetry on disk. Request IDs are
+echoed for response correlation; stale summaries are rejected. The browser
+ignores responses for a superseded request or connection and retries after a
+disconnect. Automatic adaptation eligibility is returned in the score
+response; the separate adaptation/generation request is not enabled here.
 
 ## Standard error response
 
@@ -106,8 +115,8 @@ output.
 | Contract | Defined/validated in | Producer | Consumer |
 |---|---|---|---|
 | Field catalogue and metadata | `src/contracts.ts` | Shared package | Web app, API, generator |
-| Telemetry summary | `src/contracts.ts` | Web app | API / friction engine |
-| Friction response | `src/contracts.ts` | API / friction engine | Web app |
+| Telemetry summary | `src/contracts.ts` | Web app | WebSocket service / friction engine |
+| Friction response | `src/contracts.ts` | WebSocket service / friction engine | Web app |
 | Adaptation request | `src/contracts.ts` | Web app | API / generation service |
 | Adaptive UI plan and coverage gate | `src/contracts.ts`, JSON Schema | Generation service | API and web renderer |
 | Message envelopes and errors | `src/contracts.ts` | Web app / API | API / web app |

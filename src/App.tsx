@@ -10,7 +10,6 @@ import {
 } from "./contracts.js";
 import {
   createAdaptationTriggerState,
-  evaluateAdaptationTrigger,
   getFrictionScoreResponse,
   requestManualSimplification,
   restoreOriginalPresentation,
@@ -27,6 +26,7 @@ import {
   useFinancialFormTelemetry,
   type FinancialFormTelemetryEvents,
 } from "./telemetry.js";
+import { useTelemetrySocket } from "./telemetrySocket.js";
 
 type Presentation = "original" | "wizard";
 
@@ -204,10 +204,15 @@ function ValidationAction({
 export function App() {
   const [presentation, setPresentation] = useState<Presentation>("original");
   const { summary, events } = useFinancialFormTelemetry();
+  const {
+    connectionStatus,
+    frictionResponse: serverFrictionResponse,
+  } = useTelemetrySocket(summary);
   const [triggerState, setTriggerState] = useState(
     createAdaptationTriggerState,
   );
   const triggerStateRef = useRef<AdaptationTriggerState>(triggerState);
+  const pendingAutomaticAdaptationRef = useRef(false);
   const [frictionResponse, setFrictionResponse] =
     useState<FrictionScoreResponse | null>(null);
   const form = useForm<FormValues>({
@@ -216,24 +221,19 @@ export function App() {
   });
 
   useEffect(() => {
-    const scored = scoreInteractionFriction(summary);
-    const evaluation = evaluateAdaptationTrigger(
-      summary,
-      scored,
-      triggerStateRef.current,
-      Date.now(),
-    );
-    if (!evaluation.windowProcessed) {
+    if (serverFrictionResponse === null) {
       return;
     }
 
-    triggerStateRef.current = evaluation.state;
-    setTriggerState(evaluation.state);
-    setFrictionResponse(evaluation.scoreResponse);
-    if (evaluation.triggeredAutomatically) {
-      setPresentation("wizard");
+    setFrictionResponse(serverFrictionResponse);
+    if (serverFrictionResponse.eligibleForAdaptation) {
+      if (triggerStateRef.current.automaticAdaptationOverridden) {
+        pendingAutomaticAdaptationRef.current = true;
+      } else {
+        setPresentation("wizard");
+      }
     }
-  }, [summary]);
+  }, [serverFrictionResponse]);
 
   const simplifyNow = () => {
     const scored = scoreInteractionFriction(summary);
@@ -276,6 +276,10 @@ export function App() {
     );
     triggerStateRef.current = nextState;
     setTriggerState(nextState);
+    if (enabled && pendingAutomaticAdaptationRef.current) {
+      pendingAutomaticAdaptationRef.current = false;
+      setPresentation("wizard");
+    }
     setFrictionResponse(
       getFrictionScoreResponse(
         summary,
@@ -425,6 +429,9 @@ export function App() {
         <WizardForm form={form} telemetry={events} />
       )}
 
+      <p className="telemetry-status" role="status" aria-live="polite">
+        Telemetry service: {connectionStatus}
+      </p>
       <details className="telemetry-inspector">
         <summary>Local interaction summary (rolling 30 seconds)</summary>
         <pre aria-label="Local telemetry summary">
@@ -433,7 +440,7 @@ export function App() {
       </details>
 
       <footer className="page-footer">
-        <span>No backend · No real application · No lending decision</span>
+        <span>Aggregate telemetry only · No real application · No lending decision</span>
       </footer>
     </main>
   );

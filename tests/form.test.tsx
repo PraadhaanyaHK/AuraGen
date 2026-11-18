@@ -100,6 +100,18 @@ describe("synthetic personal loan form", () => {
     ).toBeChecked();
   });
 
+  it("keeps form completion available while telemetry is disconnected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Check demo fields" }));
+    expect(
+      await screen.findByText(
+        "The entered demo values pass validation. Nothing was submitted.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("validates the current wizard section before advancing", async () => {
     const user = userEvent.setup();
     render(<App />);
