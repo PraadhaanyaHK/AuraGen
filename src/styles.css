@@ -548,6 +548,12 @@ h1 {
   font-size: 12px;
 }
 
+.telemetry-status {
+  margin: 0 0 8px;
+  color: #526174;
+  font-size: 12px;
+}
+
 .telemetry-inspector summary {
   cursor: pointer;
   font-weight: 600;

@@ -74,6 +74,25 @@ It is not a verbatim transcript.
 - Verification: `npm test` (39 tests), `npm run typecheck`, and `npm run lint`
   passed.
 
+## Week 2 - Day 3 - Task 2B: Frontend telemetry WebSocket integration
+
+- Added a standalone Node `ws` service on `/telemetry`, with a 16 KiB frame
+  limit, shared Zod message validation, bounded summary counts, stale-window
+  rejection, request-ID deduplication, and per-connection trigger state.
+- The Vite client sends only one aggregate summary per five-second interval,
+  correlates responses, prevents overlapping requests, surfaces connection
+  status, and reconnects with bounded backoff. Form controls remain usable
+  while the service is disconnected.
+- The service returns the shared IFS response and trigger eligibility. It
+  keeps state in memory only; plan generation and `adaptation.request` remain
+  disabled. No form values, typed text, identifiers, or raw pointer
+  coordinates are transmitted.
+- Added real WebSocket integration coverage for low/high scores, high-friction
+  trigger hysteresis, pointer-only exclusion, malformed/oversized/stale
+  messages, request correlation/deduplication, and client reconnect behavior.
+- Verification: `npm test` (47 tests), `npm run typecheck`, `npm run lint`,
+  `npm run build`, and `git diff --check` all passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

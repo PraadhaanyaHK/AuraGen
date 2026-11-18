@@ -21,7 +21,7 @@ The LLM may return data-only plans, never executable React or JavaScript.
 ## Logical workstreams
 
 1. **Friction Engine:** local telemetry aggregation, explainable scoring,
-   trigger guards, and later WebSocket communication.
+   trigger guards, and the aggregate-summary WebSocket connection.
 2. **Code-Gen Agent:** API/WebSocket gateway, constrained plan generation,
    server-side provider adapter, and deterministic mock generation by default.
 3. **Schema and Security Gate:** shared TypeScript/Zod contracts, JSON Schema,
@@ -74,13 +74,16 @@ The repository is a single root package, not a monorepo. The current renderer
 is a Vite/React application; it includes an original one-page form and a
 temporary hardcoded wizard preview using the shared catalogue and field
 registry. Local provisional friction scoring and automatic/manual adaptation
-triggers are implemented. The API service, live generation, and WebSocket
-integration have not been implemented.
+triggers are implemented. A separate, non-persistent WebSocket service now
+accepts aggregate summaries, validates and scores them, and returns trigger
+eligibility. Adaptive-plan generation and the broader API service remain
+unimplemented.
 
 Use Node.js 20+ and npm 10+. Common checks:
 
 ```sh
 npm run dev
+npm run dev:ws
 npm test
 npm run typecheck
 npm run lint

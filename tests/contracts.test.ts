@@ -129,6 +129,12 @@ describe("telemetry and friction contracts", () => {
         pointerX: 20,
       }).success,
     ).toBe(false);
+    expect(
+      TelemetrySummarySchema.safeParse({
+        ...validTelemetry,
+        counts: { ...validTelemetry.counts, inputChanges: 1001 },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects inconsistent score bands and adaptation eligibility", () => {

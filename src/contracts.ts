@@ -239,17 +239,17 @@ export const FINANCIAL_FORM_METADATA: FinancialFormMetadata = {
 
 export const TelemetryCountsSchema = z
   .object({
-    focusEvents: z.number().int().min(0),
-    blurEvents: z.number().int().min(0),
-    inputChanges: z.number().int().min(0),
-    validationErrors: z.number().int().min(0),
-    repeatedClicks: z.number().int().min(0),
-    hesitations: z.number().int().min(0),
-    prolongedUnchangedHesitations: z.number().int().min(0),
-    backtracks: z.number().int().min(0),
-    fieldSwitches: z.number().int().min(0),
-    pointerCorrections: z.number().int().min(0),
-    mouseSamples: z.number().int().min(0),
+    focusEvents: z.number().int().min(0).max(1000),
+    blurEvents: z.number().int().min(0).max(1000),
+    inputChanges: z.number().int().min(0).max(1000),
+    validationErrors: z.number().int().min(0).max(1000),
+    repeatedClicks: z.number().int().min(0).max(1000),
+    hesitations: z.number().int().min(0).max(1000),
+    prolongedUnchangedHesitations: z.number().int().min(0).max(1000),
+    backtracks: z.number().int().min(0).max(1000),
+    fieldSwitches: z.number().int().min(0).max(1000),
+    pointerCorrections: z.number().int().min(0).max(1000),
+    mouseSamples: z.number().int().min(0).max(1000),
   })
   .strict();
 
