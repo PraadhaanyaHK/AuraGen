@@ -1,0 +1,267 @@
+import { ChatOpenAI } from "@langchain/openai";
+import {
+  ADAPTIVE_UI_SCHEMA_VERSION,
+  FINANCIAL_FORM_ID,
+  FINANCIAL_FORM_METADATA,
+  FINANCIAL_FORM_SECTIONS,
+  FINANCIAL_FORM_FIELDS,
+  validateAdaptiveUiPlan,
+  type AdaptiveUiPlan,
+  type FinancialFormMetadata,
+} from "../src/contracts.js";
+import { z } from "zod";
+
+const GENERATION_TIMEOUT_MS = 15_000;
+const DEFAULT_MODEL = "gpt-4o";
+const approvedFieldIds = FINANCIAL_FORM_METADATA.fields.map(({ id }) => id) as [
+  (typeof FINANCIAL_FORM_METADATA.fields)[number]["id"],
+  ...(typeof FINANCIAL_FORM_METADATA.fields)[number]["id"][],
+];
+
+const modelPlanStepSchema = z
+  .object({
+    id: z.enum(["step-1", "step-2", "step-3", "step-4", "step-5"]),
+    title: z.string().trim().min(1).max(60),
+    description: z.string().trim().min(1).max(180),
+    fieldIds: z
+      .array(z.enum(approvedFieldIds))
+      .min(1)
+      .max(FINANCIAL_FORM_METADATA.fields.length),
+  })
+  .strict();
+
+export const ModelPlanSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    introduction: z.string().trim().min(1).max(200),
+    steps: z.array(modelPlanStepSchema).min(3).max(5),
+  })
+  .strict();
+
+export type ModelPlan = z.infer<typeof ModelPlanSchema>;
+
+export type GenerationInput = {
+  readonly frictionReasons: readonly string[];
+};
+
+export type GenerationPayload = {
+  readonly formId: typeof FINANCIAL_FORM_ID;
+  readonly schemaVersion: typeof ADAPTIVE_UI_SCHEMA_VERSION;
+  readonly fields: FinancialFormMetadata["fields"];
+  readonly frictionReasons: readonly string[];
+};
+
+export interface GenerationProvider {
+  generate(
+    payload: GenerationPayload,
+    signal: AbortSignal,
+  ): Promise<unknown>;
+}
+
+export type GenerationFailureCode =
+  | "missing-credentials"
+  | "provider-failure"
+  | "timeout"
+  | "invalid-output";
+
+export type GenerationResult = {
+  readonly plan: AdaptiveUiPlan;
+  readonly mode: "mock" | "live";
+  readonly fallback: boolean;
+  readonly error?: {
+    readonly code: GenerationFailureCode;
+    readonly message: string;
+  };
+};
+
+export const GENERATION_SYSTEM_PROMPT = `You are AuraGen's constrained UI planning assistant.
+AuraGen is a synthetic UX research demo. It may rearrange the approved fields of a
+synthetic form to reduce interaction friction, but it does not submit applications,
+make financial or lending decisions, process transactions, or handle personal data.
+
+Return only a structured data-only plan. Use exactly 3 to 5 steps and include every
+approved field ID exactly once across the steps. You may produce only a plan title,
+introduction, step IDs, step titles, short descriptions, and field grouping/order.
+Do not create fields, change labels, define controls, change validation or required
+status, add submission actions, make financial decisions, or produce arbitrary code.
+Never return imports, HTML, CSS, JavaScript, JSX, or executable instructions.`;
+
+export function createGenerationPayload(
+  input: GenerationInput,
+): GenerationPayload {
+  const frictionReasons = z
+    .array(z.string().trim().min(1).max(180))
+    .max(6)
+    .parse(input.frictionReasons);
+
+  return {
+    formId: FINANCIAL_FORM_ID,
+    schemaVersion: ADAPTIVE_UI_SCHEMA_VERSION,
+    fields: FINANCIAL_FORM_METADATA.fields,
+    frictionReasons,
+  };
+}
+
+function createMockPlan(): AdaptiveUiPlan {
+  return validateAdaptiveUiPlan({
+    schemaVersion: ADAPTIVE_UI_SCHEMA_VERSION,
+    title: "A simpler way to review your demo details",
+    introduction:
+      "This step-by-step presentation keeps the same approved demo fields.",
+    steps: FINANCIAL_FORM_SECTIONS.map((section, index) => ({
+      id: `step-${index + 1}`,
+      title: section,
+      description: `Review the ${section.toLowerCase()} details for this demo.`,
+      fieldIds: FINANCIAL_FORM_FIELDS.filter(
+        (field) => field.section === section,
+      ).map(({ id }) => id),
+    })),
+  });
+}
+
+function toAdaptiveUiPlan(input: unknown): AdaptiveUiPlan {
+  const modelPlan = ModelPlanSchema.parse(input);
+  return validateAdaptiveUiPlan({
+    schemaVersion: ADAPTIVE_UI_SCHEMA_VERSION,
+    ...modelPlan,
+  });
+}
+
+function safeFailure(
+  mode: "mock" | "live",
+  code: GenerationFailureCode,
+  message: string,
+): GenerationResult {
+  return {
+    plan: createMockPlan(),
+    mode,
+    fallback: true,
+    error: { code, message },
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+export function createLiveGenerationProvider(config: {
+  apiKey: string;
+  model?: string;
+}): GenerationProvider {
+  const model = new ChatOpenAI({
+    apiKey: config.apiKey,
+    model: config.model ?? DEFAULT_MODEL,
+  }).withStructuredOutput(ModelPlanSchema, {
+    name: "auragen_adaptive_ui_plan",
+    strict: true,
+  });
+
+  return {
+    async generate(payload, signal) {
+      return model.invoke(
+        [
+          ["system", GENERATION_SYSTEM_PROMPT],
+          [
+            "user",
+            JSON.stringify({
+              formId: payload.formId,
+              schemaVersion: payload.schemaVersion,
+              fields: payload.fields,
+              frictionReasons: payload.frictionReasons,
+            }),
+          ],
+        ],
+        { signal },
+      );
+    },
+  };
+}
+
+async function withTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error("Generation provider timed out"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+export async function generateAdaptiveUiPlan(
+  input: GenerationInput,
+  options: {
+    mode?: "mock" | "live";
+    apiKey?: string;
+    model?: string;
+    timeoutMs?: number;
+    provider?: GenerationProvider;
+  } = {},
+): Promise<GenerationResult> {
+  const mode =
+    options.mode ??
+    (process.env.AURAGEN_GENERATION_MODE === "live" ? "live" : "mock");
+  if (mode === "mock") {
+    return { plan: createMockPlan(), mode, fallback: false };
+  }
+
+  const payload = createGenerationPayload(input);
+  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+  if (options.provider === undefined && !apiKey) {
+    return safeFailure(
+      mode,
+      "missing-credentials",
+      "Live generation is unavailable because server credentials are not configured.",
+    );
+  }
+
+  const provider =
+    options.provider ??
+    createLiveGenerationProvider({
+      apiKey: apiKey!,
+      model: options.model ?? process.env.OPENAI_MODEL ?? DEFAULT_MODEL,
+    });
+
+  try {
+    const raw = await withTimeout(
+      (signal) => provider.generate(payload, signal),
+      options.timeoutMs ?? GENERATION_TIMEOUT_MS,
+    );
+    return {
+      plan: toAdaptiveUiPlan(raw),
+      mode,
+      fallback: false,
+    };
+  } catch (error) {
+    if (
+      isAbortError(error) ||
+      (error instanceof Error && error.message.includes("timed out"))
+    ) {
+      return safeFailure(mode, "timeout", "Live generation timed out.");
+    }
+    if (error instanceof z.ZodError) {
+      return safeFailure(
+        mode,
+        "invalid-output",
+        "Live generation returned an invalid UI plan.",
+      );
+    }
+    return safeFailure(
+      mode,
+      "provider-failure",
+      "Live generation failed; the approved original layout is unchanged.",
+    );
+  }
+}

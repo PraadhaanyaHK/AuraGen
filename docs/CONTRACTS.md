@@ -76,6 +76,15 @@ validation, required status, executable code, styling, submission behavior or
 financial logic. Renderers must resolve IDs through the approved component
 registry.
 
+The server generation adapter is mock-first. Live mode uses the server-side
+`OPENAI_API_KEY` and optional `OPENAI_MODEL` (`gpt-4o` by default), sends only
+the form ID, schema version, approved field metadata, and aggregate friction
+reasons, and requests a LangChain structured output schema. The response is
+still parsed through Zod and the exact-once invariant. Missing credentials,
+provider errors, timeouts, and malformed responses return a safe deterministic
+fallback rather than breaking mock mode. No form values are sent to the
+provider.
+
 ## WebSocket message envelopes
 
 Every message is a strict JSON object with `protocolVersion`, a UUID
