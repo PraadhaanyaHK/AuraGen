@@ -62,8 +62,9 @@ renderer, and a separate telemetry WebSocket service:
 
 The WebSocket telemetry service scores aggregate summaries and returns the
 provisional friction response. It runs separately from the Vite frontend.
-Adaptation-plan generation is not enabled yet. Provisional score weights and
-trigger thresholds are documented in
+The server-side generation pipeline is mock-first and can optionally use a
+configured LangChain/OpenAI provider. Provisional score weights and trigger
+thresholds are documented in
 [docs/FRICTION_SCORING.md](docs/FRICTION_SCORING.md).
 
 ## Development
@@ -87,6 +88,24 @@ service listens on `127.0.0.1:8081` by default; configure it with
 `TELEMETRY_WS_HOST` and `TELEMETRY_WS_PORT`. Set
 `VITE_TELEMETRY_WS_URL` to override the frontend WebSocket URL. The frontend
 continues to work if the service is unavailable and reconnects automatically.
+
+### Optional live generation provider
+
+Generation is deterministic mock mode by default and does not require an API
+key. To enable the server-side LangChain/OpenAI adapter, set these variables
+only in the server process environment:
+
+```sh
+AURAGEN_GENERATION_MODE=live
+OPENAI_API_KEY=your-server-side-key
+OPENAI_MODEL=gpt-4o
+```
+
+Never use a `VITE_` variable for the key or commit it to source control. The
+adapter sends only the form ID, schema version, approved field metadata, and
+aggregate friction reasons. It validates the provider response with Zod and
+falls back to the deterministic approved-field plan on missing credentials,
+provider errors, timeouts, or malformed output.
 
 Open the local URL printed by Vite (by default
 `http://127.0.0.1:5173/`) to see the original form. Use the **Wizard preview**

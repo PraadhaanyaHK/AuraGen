@@ -93,6 +93,24 @@ It is not a verbatim transcript.
 - Verification: `npm test` (47 tests), `npm run typecheck`, `npm run lint`,
   `npm run build`, and `git diff --check` all passed.
 
+## Week 2 - Task 2C day 4: Structured AI generation pipeline
+
+- Added a server-only, deterministic mock-first generation interface with an
+  optional LangChain `ChatOpenAI` structured-output adapter using `gpt-4o` by
+  default.
+- Live prompts include only the fixed form ID, schema version, approved field
+  metadata, and aggregate friction reasons. The system prompt forbids fields,
+  controls, validation changes, executable code, financial decisions, and
+  submission actions.
+- Provider responses are parsed through Zod and the existing exact-once field
+  coverage validator. Missing credentials, provider failures, timeouts, and
+  malformed output return a safe approved-field mock fallback.
+- Added provider-mocked tests for default mock mode, payload boundaries,
+  malformed output, missing credentials, and provider failure. No paid model
+  call is required by CI.
+- Verification: `npm test`, `npm run typecheck`, `npm run lint`, and
+  `npm run build`.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
