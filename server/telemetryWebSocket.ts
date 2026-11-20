@@ -13,6 +13,7 @@ import {
   evaluateAdaptationTrigger,
   scoreInteractionFriction,
 } from "../src/friction.js";
+import { generateAdaptiveUiPlan } from "./generation.js";
 
 const REQUEST_ID_CACHE_SIZE = 256;
 const MAX_TELEMETRY_AGE_MS = 60_000;
@@ -38,6 +39,7 @@ function sendError(
     | "INVALID_MESSAGE"
     | "INVALID_TELEMETRY"
     | "INVALID_ADAPTATION_REQUEST"
+    | "GENERATION_FAILED"
     | "MESSAGE_TOO_LARGE",
   message: string,
   retryable = false,
@@ -90,13 +92,34 @@ export function createTelemetryWebSocketServer({
       }
 
       if (message.event !== "telemetry.summary") {
-        console.warn("Unsupported telemetry event rejected");
-        sendError(
-          socket,
-          message.requestId,
-          "INVALID_ADAPTATION_REQUEST",
-          "Adaptation requests are not enabled on this service",
-        );
+        const frictionReasons = [
+          ...message.payload.friction.observedSignals,
+          ...message.payload.friction.explanations
+            .filter((feature) => feature.count > 0)
+            .map((feature) => `${feature.feature}:${feature.count}`),
+        ].slice(0, 6);
+        void generateAdaptiveUiPlan({ frictionReasons })
+          .then((result) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return;
+            }
+            const response: ServerMessage = {
+              protocolVersion: CONTRACT_VERSION,
+              requestId: message.requestId,
+              event: "adaptation.plan",
+              payload: result.plan,
+            };
+            socket.send(JSON.stringify(response));
+          })
+          .catch(() => {
+            sendError(
+              socket,
+              message.requestId,
+              "GENERATION_FAILED",
+              "Generation failed; the approved original layout remains available.",
+              true,
+            );
+          });
         return;
       }
 

@@ -6,6 +6,8 @@ import {
 import {
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_SECTIONS,
+  validateAdaptiveUiPlan,
+  type AdaptiveUiPlan,
   type FrictionScoreResponse,
 } from "./contracts.js";
 import {
@@ -20,8 +22,13 @@ import {
 import {
   getFieldsForSection,
   RegisteredField,
+  resolveRegisteredField,
   type FormValues,
 } from "./fieldRegistry.js";
+import {
+  createFallbackAdaptiveUiPlan,
+  resolveApprovedFieldIds,
+} from "./adaptivePlan.js";
 import {
   useFinancialFormTelemetry,
   type FinancialFormTelemetryEvents,
@@ -74,32 +81,32 @@ function OriginalForm({
     </form>
   );
 }
-const WIZARD_STEP_DESCRIPTIONS = [
-  "Tell us about your work.",
-  "Add your monthly income and expenses.",
-  "Share any existing monthly commitments.",
-  "Choose the amount, period, and purpose for this demo request.",
-] as const;
-
 function WizardForm({
   form,
   telemetry,
+  plan,
 }: {
   form: UseFormReturn<FormValues>;
   telemetry: FinancialFormTelemetryEvents;
+  plan: AdaptiveUiPlan;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [checked, setChecked] = useState(false);
-  const section = FINANCIAL_FORM_SECTIONS[stepIndex]!;
-  const fields = getFieldsForSection(section);
-  const currentFieldIds = fields.map(({ id }) => id);
-  const isLastStep = stepIndex === FINANCIAL_FORM_SECTIONS.length - 1;
+  const step = plan.steps[stepIndex]!;
+  const currentFieldIds = resolveApprovedFieldIds(step.fieldIds);
+  const fields = currentFieldIds
+    .map((fieldId) => resolveRegisteredField(fieldId))
+    .filter((field): field is NonNullable<typeof field> => field !== undefined);
+  if (fields.length !== currentFieldIds.length) {
+    throw new Error("Adaptive plan contains an unsupported field component");
+  }
+  const isLastStep = stepIndex === plan.steps.length - 1;
 
   const goNext = async () => {
     telemetry.click("wizard-continue");
     const valid = await form.trigger(currentFieldIds);
     if (valid) {
-      setStepIndex((current) => Math.min(current + 1, FINANCIAL_FORM_SECTIONS.length - 1));
+      setStepIndex((current) => Math.min(current + 1, plan.steps.length - 1));
     } else {
       telemetry.validationFailure();
     }
@@ -119,19 +126,17 @@ function WizardForm({
     >
       <div className="wizard-progress" aria-label="Wizard progress">
         <span>
-          Step {stepIndex + 1} of {FINANCIAL_FORM_SECTIONS.length}
+          Step {stepIndex + 1} of {plan.steps.length}
         </span>
         <progress
           value={stepIndex + 1}
-          max={FINANCIAL_FORM_SECTIONS.length}
-          aria-label={`Step ${stepIndex + 1} of ${FINANCIAL_FORM_SECTIONS.length}`}
+          max={plan.steps.length}
+          aria-label={`Step ${stepIndex + 1} of ${plan.steps.length}`}
         />
       </div>
       <section className="form-section" aria-labelledby="wizard-step-title">
-        <h2 id="wizard-step-title">{section}</h2>
-        <p className="step-description">
-          {WIZARD_STEP_DESCRIPTIONS[stepIndex]}
-        </p>
+        <h2 id="wizard-step-title">{step.title}</h2>
+        <p className="step-description">{step.description}</p>
         <div className="field-grid">
           {fields.map((definition) => (
             <RegisteredField
@@ -207,6 +212,9 @@ export function App() {
   const {
     connectionStatus,
     frictionResponse: serverFrictionResponse,
+    adaptationPlan,
+    generationError,
+    sendAdaptationRequest,
   } = useTelemetrySocket(summary);
   const [triggerState, setTriggerState] = useState(
     createAdaptationTriggerState,
@@ -215,6 +223,8 @@ export function App() {
   const pendingAutomaticAdaptationRef = useRef(false);
   const [frictionResponse, setFrictionResponse] =
     useState<FrictionScoreResponse | null>(null);
+  const [activePlan, setActivePlan] =
+    useState<AdaptiveUiPlan>(createFallbackAdaptiveUiPlan);
   const form = useForm<FormValues>({
     shouldUnregister: false,
     mode: "onBlur",
@@ -230,10 +240,28 @@ export function App() {
       if (triggerStateRef.current.automaticAdaptationOverridden) {
         pendingAutomaticAdaptationRef.current = true;
       } else {
+        sendAdaptationRequest(
+          serverFrictionResponse,
+          triggerStateRef.current.consecutiveHighWindows,
+        );
         setPresentation("wizard");
       }
     }
   }, [serverFrictionResponse]);
+
+  useEffect(() => {
+    if (adaptationPlan === null) {
+      return;
+    }
+    try {
+      setActivePlan(validateAdaptiveUiPlan(adaptationPlan));
+      setPresentation("wizard");
+    } catch (error) {
+      setActivePlan(createFallbackAdaptiveUiPlan());
+      setPresentation("original");
+      console.warn("Ignoring invalid adaptive UI plan", error);
+    }
+  }, [adaptationPlan]);
 
   const simplifyNow = () => {
     const scored = scoreInteractionFriction(summary);
@@ -247,6 +275,11 @@ export function App() {
     setTriggerState(evaluation.state);
     setFrictionResponse(evaluation.scoreResponse);
     if (evaluation.triggeredManually) {
+      sendAdaptationRequest(
+        evaluation.scoreResponse,
+        evaluation.state.consecutiveHighWindows,
+      );
+      setActivePlan(createFallbackAdaptiveUiPlan());
       setPresentation("wizard");
     }
   };
@@ -363,6 +396,16 @@ export function App() {
               Restore original
             </button>
           )}
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => {
+              form.reset();
+              setPresentation("original");
+            }}
+          >
+            Reset fields
+          </button>
           <label className="automatic-adaptation-toggle">
             <input
               type="checkbox"
@@ -426,12 +469,17 @@ export function App() {
       {presentation === "original" ? (
         <OriginalForm form={form} telemetry={events} />
       ) : (
-        <WizardForm form={form} telemetry={events} />
+        <WizardForm form={form} telemetry={events} plan={activePlan} />
       )}
 
       <p className="telemetry-status" role="status" aria-live="polite">
         Telemetry service: {connectionStatus}
       </p>
+      {generationError !== null && (
+        <p className="telemetry-status" role="status">
+          Plan unavailable: {generationError} Showing the prebuilt form.
+        </p>
+      )}
       <details className="telemetry-inspector">
         <summary>Local interaction summary (rolling 30 seconds)</summary>
         <pre aria-label="Local telemetry summary">

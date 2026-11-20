@@ -3,8 +3,11 @@ import {
   CONTRACT_VERSION,
   MessageInputError,
   parseServerMessage,
+  ADAPTIVE_UI_SCHEMA_VERSION,
+  FINANCIAL_FORM_METADATA,
   type FrictionScoreResponse,
   type TelemetrySummary,
+  type AdaptiveUiPlan,
 } from "./contracts.js";
 import { TELEMETRY_SUMMARY_INTERVAL_MS } from "./telemetry.js";
 
@@ -25,6 +28,12 @@ function createRequestId(): string {
 export function useTelemetrySocket(summary: TelemetrySummary): {
   connectionStatus: TelemetryConnectionStatus;
   frictionResponse: FrictionScoreResponse | null;
+  adaptationPlan: AdaptiveUiPlan | null;
+  generationError: string | null;
+  sendAdaptationRequest: (
+    friction: FrictionScoreResponse,
+    consecutiveHighWindows: number,
+  ) => boolean;
 } {
   const summaryRef = useRef(summary);
   summaryRef.current = summary;
@@ -32,6 +41,72 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     useState<TelemetryConnectionStatus>("connecting");
   const [frictionResponse, setFrictionResponse] =
     useState<FrictionScoreResponse | null>(null);
+  const [adaptationPlan, setAdaptationPlan] =
+    useState<AdaptiveUiPlan | null>(null);
+  const [generationError, setGenerationError] =
+    useState<string | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const pendingAdaptationRequestRef = useRef<string | null>(null);
+  const adaptationResponseTimerRef = useRef<number | undefined>(undefined);
+
+  const sendAdaptationRequest = (
+    friction: FrictionScoreResponse,
+    consecutiveHighWindows: number,
+  ): boolean => {
+    const socket = socketRef.current;
+    if (
+      socket === null ||
+      socket.readyState !== WebSocket.OPEN ||
+      pendingAdaptationRequestRef.current !== null
+    ) {
+      return false;
+    }
+
+    const counts = summaryRef.current.counts;
+    const independentSignal =
+      counts.validationErrors > 0
+        ? "validation-errors"
+        : counts.repeatedClicks > 0
+          ? "repeated-clicks"
+          : counts.backtracks > 0
+            ? "backtracking"
+            : null;
+    if (independentSignal === null) {
+      return false;
+    }
+
+    const requestId = createRequestId();
+    pendingAdaptationRequestRef.current = requestId;
+    try {
+      socket.send(
+        JSON.stringify({
+          protocolVersion: CONTRACT_VERSION,
+          requestId,
+          event: "adaptation.request",
+          payload: {
+            schemaVersion: ADAPTIVE_UI_SCHEMA_VERSION,
+            form: FINANCIAL_FORM_METADATA,
+            telemetry: summaryRef.current,
+            friction,
+            consecutiveHighWindows,
+            independentSignal,
+          },
+        }),
+      );
+      adaptationResponseTimerRef.current = window.setTimeout(() => {
+        if (pendingAdaptationRequestRef.current === requestId) {
+          pendingAdaptationRequestRef.current = null;
+          adaptationResponseTimerRef.current = undefined;
+          setGenerationError("Live plan generation timed out.");
+        }
+      }, RESPONSE_TIMEOUT_MS);
+      return true;
+    } catch {
+      pendingAdaptationRequestRef.current = null;
+      setGenerationError("Unable to send the generation request.");
+      return false;
+    }
+  };
 
   useEffect(() => {
     const socketUrl =
@@ -58,6 +133,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       setConnectionStatus("connecting");
       try {
         socket = new WebSocket(socketUrl);
+        socketRef.current = socket;
       } catch {
         console.warn("Unable to open telemetry WebSocket");
         setConnectionStatus("disconnected");
@@ -88,14 +164,39 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
               );
             }
             const message = parseServerMessage(event.data);
-            if (message.requestId !== pendingRequestId) {
+            if (
+              message.requestId !== pendingRequestId &&
+              message.requestId !== pendingAdaptationRequestRef.current
+            ) {
               console.debug("Ignoring stale telemetry response");
               return;
             }
-            clearPendingRequest();
             if (message.event === "friction.score") {
+              if (message.requestId !== pendingRequestId) {
+                return;
+              }
+              clearPendingRequest();
               setFrictionResponse(message.payload);
+            } else if (message.event === "adaptation.plan") {
+              if (message.requestId !== pendingAdaptationRequestRef.current) {
+                return;
+              }
+              pendingAdaptationRequestRef.current = null;
+              if (adaptationResponseTimerRef.current !== undefined) {
+                window.clearTimeout(adaptationResponseTimerRef.current);
+                adaptationResponseTimerRef.current = undefined;
+              }
+              setGenerationError(null);
+              setAdaptationPlan(message.payload);
             } else if (message.event === "error") {
+              if (message.requestId === pendingAdaptationRequestRef.current) {
+                pendingAdaptationRequestRef.current = null;
+                if (adaptationResponseTimerRef.current !== undefined) {
+                  window.clearTimeout(adaptationResponseTimerRef.current);
+                  adaptationResponseTimerRef.current = undefined;
+                }
+                setGenerationError(message.payload.message);
+              }
               console.warn("Telemetry summary rejected", {
                 code: message.payload.code,
                 retryable: message.payload.retryable,
@@ -123,7 +224,13 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
           return;
         }
         socket = null;
+        socketRef.current = null;
         clearPendingRequest();
+        pendingAdaptationRequestRef.current = null;
+        if (adaptationResponseTimerRef.current !== undefined) {
+          window.clearTimeout(adaptationResponseTimerRef.current);
+          adaptationResponseTimerRef.current = undefined;
+        }
         setConnectionStatus("disconnected");
         console.debug("Telemetry WebSocket disconnected");
         scheduleReconnect();
@@ -187,10 +294,22 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
         window.clearInterval(summaryTimer);
       }
       clearPendingRequest();
+      socketRef.current = null;
+      pendingAdaptationRequestRef.current = null;
+      if (adaptationResponseTimerRef.current !== undefined) {
+        window.clearTimeout(adaptationResponseTimerRef.current);
+        adaptationResponseTimerRef.current = undefined;
+      }
       socket?.close();
       socket = null;
     };
   }, []);
 
-  return { connectionStatus, frictionResponse };
+  return {
+    connectionStatus,
+    frictionResponse,
+    adaptationPlan,
+    generationError,
+    sendAdaptationRequest,
+  };
 }

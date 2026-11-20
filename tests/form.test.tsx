@@ -6,9 +6,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App.js";
 import {
+  FIELD_IDS,
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_SECTIONS,
 } from "../src/contracts.js";
+import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
 
 afterEach(cleanup);
 
@@ -98,6 +100,24 @@ describe("synthetic personal loan form", () => {
     expect(
       screen.getByRole("checkbox", { name: "Automatic simplification" }),
     ).toBeChecked();
+  });
+
+  it("renders the fallback plan with all ten fields exactly once and preserves values", async () => {
+    const plan = createFallbackAdaptiveUiPlan();
+    expect(plan.steps.length).toBeGreaterThanOrEqual(3);
+    expect(plan.steps.length).toBeLessThanOrEqual(5);
+    expect(plan.steps.flatMap((step) => step.fieldIds)).toEqual(FIELD_IDS);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText(/Monthly take-home income/i), "60000");
+    await user.click(screen.getByRole("button", { name: "Wizard preview" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByLabelText(/Monthly take-home income/i)).toHaveValue(60000);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Original form" }));
+    expect(screen.getByLabelText(/Monthly take-home income/i)).toHaveValue(60000);
   });
 
   it("keeps form completion available while telemetry is disconnected", async () => {
