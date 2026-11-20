@@ -114,6 +114,23 @@ switch above the form to preview the temporary step-by-step layout, or choose
 paused with its checkbox; restoring the original layout suppresses the current
 window. The same form values are retained when switching layouts.
 
+### Reproduce the adaptive flow in mock mode
+
+1. Run `npm run dev:ws` in one terminal and `npm run dev` in another.
+2. Keep `AURAGEN_GENERATION_MODE` unset or set it to `mock`; no API key is required.
+3. Open the Vite URL and interact with the synthetic form.
+4. The WebSocket sends aggregate telemetry only. A high score requires two
+   consecutive qualifying windows and an independent task signal.
+5. When eligible, the service creates an adaptation request and returns the
+   deterministic mock plan through `adaptation.plan`.
+6. The browser validates the plan again and renders only the approved
+   application-owned field components in 3–5 wizard steps.
+7. Use Back, Next, Restore original, or Reset fields. Switching layouts never
+   refreshes the page or clears form values.
+
+If generation is unavailable or malformed, the browser keeps the prebuilt
+fallback wizard and the original form remains usable.
+
 See [docs/CONTRACTS.md](docs/CONTRACTS.md) for message ownership, event names,
 versioning, and payload boundaries. See
 [docs/FINANCIAL_FORM_SPEC.md](docs/FINANCIAL_FORM_SPEC.md) for the approved

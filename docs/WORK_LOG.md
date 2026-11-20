@@ -111,6 +111,21 @@ It is not a verbatim transcript.
 - Verification: `npm test`, `npm run typecheck`, `npm run lint`, and
   `npm run build`.
 
+## Week 2 - Task 2D day 5: Validated plan to state-preserving wizard
+
+- Connected eligible friction triggers to `adaptation.request` WebSocket
+  messages and receive `adaptation.plan` responses from the mock/live generator.
+- Added client-side Zod and exact field coverage validation plus registry
+  resolution; unknown fields and unsupported components remain unusable.
+- Replaced the hardcoded wizard with plan-driven 3–5 step navigation, progress,
+  Back/Next controls, and a safe prebuilt fallback.
+- Preserved one React Hook Form instance and `shouldUnregister: false`, including
+  values and validation across original/wizard/original switching.
+- Added Reset fields and documented mock-mode reproduction of the end-to-end
+  telemetry, IFS, generation, validation, wizard, and restore flow.
+- Verification: focused adapter/renderer integration tests, full test suite,
+  typecheck, lint, build, and `git diff --check`.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

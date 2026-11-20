@@ -284,3 +284,12 @@ export function RegisteredField({
 export function getFieldsForSection(section: string) {
   return FINANCIAL_FORM_FIELDS.filter((field) => field.section === section);
 }
+
+export function resolveRegisteredField(
+  fieldId: string,
+): CatalogueField | undefined {
+  if (!Object.prototype.hasOwnProperty.call(INPUT_COMPONENTS, fieldId)) {
+    return undefined;
+  }
+  return FINANCIAL_FORM_FIELDS.find((field) => field.id === fieldId);
+}

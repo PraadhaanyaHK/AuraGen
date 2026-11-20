@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, type RawData, type WebSocketServer } from "ws";
 import {
   CONTRACT_VERSION,
+  FINANCIAL_FORM_METADATA,
   MAX_WEBSOCKET_MESSAGE_BYTES,
   parseServerMessage,
   type TelemetrySummary,
@@ -228,6 +229,56 @@ describe("telemetry WebSocket integration", () => {
     socket.send("x".repeat(MAX_WEBSOCKET_MESSAGE_BYTES + 1));
     const [code] = await closed;
     expect(code).toBe(1009);
+  });
+
+  it("returns a validated mock adaptation plan for an eligible adaptation request", async () => {
+    let now = 1_000_000;
+    const socket = await connect(() => now);
+    const highCounts = {
+      validationErrors: 2,
+      repeatedClicks: 2,
+      prolongedUnchangedHesitations: 2,
+      backtracks: 2,
+      fieldSwitches: 8,
+      pointerCorrections: 10,
+      mouseSamples: 10,
+    };
+    await sendAndRead(
+      socket,
+      telemetryRequest(summary(now, highCounts)),
+    );
+    now += 30_000;
+    const second = await sendAndRead(
+      socket,
+      telemetryRequest(summary(now, highCounts)),
+    );
+    expect(second.event).toBe("friction.score");
+    if (second.event !== "friction.score") {
+      throw new Error("Expected a friction score response");
+    }
+
+    const requestId = crypto.randomUUID();
+    const response = await sendAndRead(socket, {
+      protocolVersion: CONTRACT_VERSION,
+      requestId,
+      event: "adaptation.request",
+      payload: {
+        schemaVersion: "1.0",
+        form: FINANCIAL_FORM_METADATA,
+        telemetry: summary(now, highCounts),
+        friction: second.payload,
+        consecutiveHighWindows: 2,
+        independentSignal: "validation-errors",
+      },
+    });
+
+    expect(response).toMatchObject({
+      requestId,
+      event: "adaptation.plan",
+      payload: {
+        schemaVersion: "1.0",
+      },
+    });
   });
 
   it("rejects a repeated request ID without scoring the request twice", async () => {
