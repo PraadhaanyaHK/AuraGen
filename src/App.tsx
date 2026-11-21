@@ -275,10 +275,6 @@ export function App() {
     setTriggerState(evaluation.state);
     setFrictionResponse(evaluation.scoreResponse);
     if (evaluation.triggeredManually) {
-      sendAdaptationRequest(
-        evaluation.scoreResponse,
-        evaluation.state.consecutiveHighWindows,
-      );
       setActivePlan(createFallbackAdaptiveUiPlan());
       setPresentation("wizard");
     }

@@ -62,13 +62,12 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       return false;
     }
 
-    const counts = summaryRef.current.counts;
     const independentSignal =
-      counts.validationErrors > 0
+      friction.observedSignals.includes("validation-errors")
         ? "validation-errors"
-        : counts.repeatedClicks > 0
+        : friction.observedSignals.includes("repeated-clicks")
           ? "repeated-clicks"
-          : counts.backtracks > 0
+          : friction.observedSignals.includes("backtracking")
             ? "backtracking"
             : null;
     if (independentSignal === null) {

@@ -3,7 +3,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App.js";
 import {
   FIELD_IDS,
@@ -12,7 +12,23 @@ import {
 } from "../src/contracts.js";
 import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
 
-afterEach(cleanup);
+class DisconnectedMockWebSocket {
+  static readonly OPEN = 1;
+  readonly readyState = 3;
+
+  addEventListener(): void {}
+  close(): void {}
+  send(): void {}
+}
+
+beforeEach(() => {
+  vi.stubGlobal("WebSocket", DisconnectedMockWebSocket);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("synthetic personal loan form", () => {
   it("renders all ten catalogue fields with their approved control types", () => {

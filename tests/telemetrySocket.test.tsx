@@ -174,4 +174,61 @@ describe("telemetry WebSocket client", () => {
     expect(result.current.frictionResponse).toBeNull();
     unmount();
   });
+
+  it("sends an eligible adaptation using an independent signal from the score response", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "00000000-0000-4000-8000-000000000001",
+    });
+
+    const highSummary: TelemetrySummary = {
+      ...emptySummary,
+      counts: {
+        ...emptySummary.counts,
+        validationErrors: 2,
+        repeatedClicks: 2,
+        prolongedUnchangedHesitations: 2,
+        backtracks: 2,
+        fieldSwitches: 8,
+        mouseSamples: 10,
+      },
+    };
+    const firstState = createAdaptationTriggerState();
+    const highResult = evaluateAdaptationTrigger(
+      highSummary,
+      scoreInteractionFriction(highSummary),
+      firstState,
+      Date.parse(highSummary.windowEnd),
+    );
+    const eligible = {
+      ...highResult.scoreResponse,
+      level: "high" as const,
+      eligibleForAdaptation: true,
+      triggerEligibility: {
+        ...highResult.scoreResponse.triggerEligibility,
+        automatic: true,
+        blockers: [],
+      },
+    };
+
+    const { result, unmount } = renderHook(() =>
+      useTelemetrySocket(emptySummary),
+    );
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.open());
+
+    let sent = false;
+    act(() => {
+      sent = result.current.sendAdaptationRequest(eligible, 2);
+    });
+    expect(sent).toBe(true);
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      event: "adaptation.request",
+      payload: {
+        consecutiveHighWindows: 2,
+        independentSignal: "validation-errors",
+      },
+    });
+    unmount();
+  });
 });

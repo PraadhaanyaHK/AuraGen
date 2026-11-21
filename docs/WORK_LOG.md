@@ -126,6 +126,22 @@ It is not a verbatim transcript.
 - Verification: focused adapter/renderer integration tests, full test suite,
   typecheck, lint, build, and `git diff --check`.
 
+## Mid-Project Review - 2026-11-21
+
+- Audited the integrated Week 1-2 MVP through the original form, validation,
+  local telemetry, IFS, WebSocket, mock/live generation boundaries, plan
+  validation, wizard rendering, value restoration, and fallback paths.
+- Fixed automatic adaptation so it uses the independent signal recorded in the
+  friction response rather than requiring it in the current summary.
+- Fixed manual simplification to use the prebuilt approved fallback directly
+  instead of sending an adaptation request outside the eligible score contract.
+- Isolated form tests from native WebSocket transport events.
+- Final verification: 55 tests passed across 7 test files, typecheck passed,
+  lint passed, and the production build passed.
+- Added the evidence pack at `docs/MID_PROJECT_REVIEW.md`.
+- Identified the Babel AST static-analysis demonstration and live provider
+  credentials as incomplete/not configured rather than completed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
