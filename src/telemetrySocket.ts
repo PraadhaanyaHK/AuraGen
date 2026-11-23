@@ -33,6 +33,8 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   sendAdaptationRequest: (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
+    presentationMode: "original" | "wizard",
+    activePlan: AdaptiveUiPlan,
   ) => boolean;
 } {
   const summaryRef = useRef(summary);
@@ -52,6 +54,8 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   const sendAdaptationRequest = (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
+    presentationMode: "original" | "wizard",
+    activePlan: AdaptiveUiPlan,
   ): boolean => {
     const socket = socketRef.current;
     if (
@@ -62,13 +66,12 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       return false;
     }
 
-    const counts = summaryRef.current.counts;
     const independentSignal =
-      counts.validationErrors > 0
+      friction.observedSignals.includes("validation-errors")
         ? "validation-errors"
-        : counts.repeatedClicks > 0
+        : friction.observedSignals.includes("repeated-clicks")
           ? "repeated-clicks"
-          : counts.backtracks > 0
+          : friction.observedSignals.includes("backtracking")
             ? "backtracking"
             : null;
     if (independentSignal === null) {
@@ -90,6 +93,11 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
             friction,
             consecutiveHighWindows,
             independentSignal,
+            presentationMode,
+            previousPlan: {
+              title: activePlan.title,
+              stepTitles: activePlan.steps.map((step) => step.title),
+            },
           },
         }),
       );

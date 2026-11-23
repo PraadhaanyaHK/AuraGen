@@ -126,6 +126,39 @@ It is not a verbatim transcript.
 - Verification: focused adapter/renderer integration tests, full test suite,
   typecheck, lint, build, and `git diff --check`.
 
+## Mid-Project Review - 2026-11-21
+
+- Audited the integrated Week 1-2 MVP through the original form, validation,
+  local telemetry, IFS, WebSocket, mock/live generation boundaries, plan
+  validation, wizard rendering, value restoration, and fallback paths.
+- Fixed automatic adaptation so it uses the independent signal recorded in the
+  friction response rather than requiring it in the current summary.
+- Fixed manual simplification to use the prebuilt approved fallback directly
+  instead of sending an adaptation request outside the eligible score contract.
+- Isolated form tests from native WebSocket transport events.
+- Final verification: 55 tests passed across 7 test files, typecheck passed,
+  lint passed, and the production build passed.
+- Added the evidence pack at `docs/MID_PROJECT_REVIEW.md`.
+- Identified the Babel AST static-analysis demonstration and live provider
+  credentials as incomplete/not configured rather than completed.
+
+## Week 3 - Day 1 - Task 3A: Contextual generation and form-state continuity
+
+- Expanded generation context with form ID, schema version, section relationships,
+  approved field metadata, aggregate friction reasons and relevant score
+  explanations, presentation mode, and previous approved plan metadata.
+- Kept live context data-only and excluded values, typed text, identifiers, pointer
+  coordinates, DOM contents, and executable instructions. Strengthened system
+  restrictions against context-injected instructions and field-definition changes.
+- Added presentation-mode and prior-plan metadata to adaptation requests.
+- Preserved wizard step position and centralized React Hook Form state across
+  layout transitions and subsequent plans. Added layout-transition heading focus
+  and invalid-current-field focus after failed advancement.
+- Added continuity coverage for multi-field entry, Back/Next navigation,
+  original-layout restoration, and receiving a second plan.
+- Verification: 56 tests passed across 7 test files; typecheck, lint, production
+  build, and `git diff --check` passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
