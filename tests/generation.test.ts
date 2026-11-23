@@ -73,7 +73,11 @@ describe("structured generation pipeline", () => {
       formId: "synthetic-personal-loan",
       schemaVersion: "1.0",
       fields: expect.any(Array),
+      sections: expect.any(Array),
       frictionReasons: input.frictionReasons,
+      frictionScore: null,
+      presentationMode: "original",
+      previousPlan: null,
     });
     expect(payload).not.toHaveProperty("values");
   });

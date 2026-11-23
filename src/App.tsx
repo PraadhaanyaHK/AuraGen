@@ -85,13 +85,21 @@ function WizardForm({
   form,
   telemetry,
   plan,
+  stepIndex,
+  setStepIndex,
+  completedSteps,
+  setCompletedSteps,
 }: {
   form: UseFormReturn<FormValues>;
   telemetry: FinancialFormTelemetryEvents;
   plan: AdaptiveUiPlan;
+  stepIndex: number;
+  setStepIndex: (index: number) => void;
+  completedSteps: ReadonlySet<number>;
+  setCompletedSteps: (steps: ReadonlySet<number>) => void;
 }) {
-  const [stepIndex, setStepIndex] = useState(0);
   const [checked, setChecked] = useState(false);
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const step = plan.steps[stepIndex]!;
   const currentFieldIds = resolveApprovedFieldIds(step.fieldIds);
   const fields = currentFieldIds
@@ -106,11 +114,24 @@ function WizardForm({
     telemetry.click("wizard-continue");
     const valid = await form.trigger(currentFieldIds);
     if (valid) {
-      setStepIndex((current) => Math.min(current + 1, plan.steps.length - 1));
+      setCompletedSteps(new Set([...completedSteps, stepIndex]));
+      setStepIndex(Math.min(stepIndex + 1, plan.steps.length - 1));
     } else {
       telemetry.validationFailure();
+      window.requestAnimationFrame(() => {
+        const invalidId = currentFieldIds.find(
+          (fieldId) => form.getFieldState(fieldId).invalid,
+        );
+        if (invalidId) {
+          document.getElementById(invalidId)?.focus();
+        }
+      });
     }
   };
+
+  useEffect(() => {
+    stepHeadingRef.current?.focus();
+  }, [stepIndex, plan.title]);
 
   return (
     <form
@@ -135,7 +156,7 @@ function WizardForm({
         />
       </div>
       <section className="form-section" aria-labelledby="wizard-step-title">
-        <h2 id="wizard-step-title">{step.title}</h2>
+        <h2 id="wizard-step-title" ref={stepHeadingRef} tabIndex={-1}>{step.title}</h2>
         <p className="step-description">{step.description}</p>
         <div className="field-grid">
           {fields.map((definition) => (
@@ -157,7 +178,7 @@ function WizardForm({
           onClick={() => {
             telemetry.click("wizard-back");
             telemetry.wizardNavigation(stepIndex, Math.max(stepIndex - 1, 0));
-            setStepIndex((current) => Math.max(current - 1, 0));
+            setStepIndex(Math.max(stepIndex - 1, 0));
           }}
         >
           Back
@@ -208,6 +229,11 @@ function ValidationAction({
 
 export function App() {
   const [presentation, setPresentation] = useState<Presentation>("original");
+  const [wizardStepIndex, setWizardStepIndex] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState<ReadonlySet<number>>(
+    new Set(),
+  );
+  const presentationHeadingRef = useRef<HTMLHeadingElement>(null);
   const { summary, events } = useFinancialFormTelemetry();
   const {
     connectionStatus,
@@ -231,6 +257,10 @@ export function App() {
   });
 
   useEffect(() => {
+    presentationHeadingRef.current?.focus();
+  }, [presentation]);
+
+  useEffect(() => {
     if (serverFrictionResponse === null) {
       return;
     }
@@ -243,6 +273,8 @@ export function App() {
         sendAdaptationRequest(
           serverFrictionResponse,
           triggerStateRef.current.consecutiveHighWindows,
+          presentation,
+          activePlan,
         );
         setPresentation("wizard");
       }
@@ -254,7 +286,11 @@ export function App() {
       return;
     }
     try {
-      setActivePlan(validateAdaptiveUiPlan(adaptationPlan));
+      const nextPlan = validateAdaptiveUiPlan(adaptationPlan);
+      setActivePlan(nextPlan);
+      setWizardStepIndex((current) =>
+        Math.min(current, nextPlan.steps.length - 1),
+      );
       setPresentation("wizard");
     } catch (error) {
       setActivePlan(createFallbackAdaptiveUiPlan());
@@ -452,7 +488,9 @@ export function App() {
 
       <div className="form-heading">
         <div>
-          <h2>{presentation === "original" ? "Personal loan details" : "Step-by-step preview"}</h2>
+          <h2 ref={presentationHeadingRef} tabIndex={-1}>
+            {presentation === "original" ? "Personal loan details" : "Step-by-step preview"}
+          </h2>
           <p>
             {presentation === "original"
               ? "Complete the fields you want to explore."
@@ -465,7 +503,15 @@ export function App() {
       {presentation === "original" ? (
         <OriginalForm form={form} telemetry={events} />
       ) : (
-        <WizardForm form={form} telemetry={events} plan={activePlan} />
+        <WizardForm
+          form={form}
+          telemetry={events}
+          plan={activePlan}
+          stepIndex={wizardStepIndex}
+          setStepIndex={setWizardStepIndex}
+          completedSteps={completedSteps}
+          setCompletedSteps={setCompletedSteps}
+        />
       )}
 
       <p className="telemetry-status" role="status" aria-live="polite">

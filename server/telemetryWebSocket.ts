@@ -98,7 +98,21 @@ export function createTelemetryWebSocketServer({
             .filter((feature) => feature.count > 0)
             .map((feature) => `${feature.feature}:${feature.count}`),
         ].slice(0, 6);
-        void generateAdaptiveUiPlan({ frictionReasons })
+        const relevantExplanations = message.payload.friction.explanations
+          .filter((feature) => feature.included && feature.count > 0)
+          .map((feature) => feature.explanation)
+          .slice(0, 6);
+        void generateAdaptiveUiPlan({
+          frictionReasons,
+          frictionScore: {
+            score: message.payload.friction.score,
+            level: message.payload.friction.level,
+            observedSignals: message.payload.friction.observedSignals,
+            relevantExplanations,
+          },
+          presentationMode: message.payload.presentationMode,
+          previousPlan: message.payload.previousPlan,
+        })
           .then((result) => {
             if (socket.readyState !== WebSocket.OPEN) {
               return;

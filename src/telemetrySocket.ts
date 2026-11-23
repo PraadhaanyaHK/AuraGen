@@ -33,6 +33,8 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   sendAdaptationRequest: (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
+    presentationMode: "original" | "wizard",
+    activePlan: AdaptiveUiPlan,
   ) => boolean;
 } {
   const summaryRef = useRef(summary);
@@ -52,6 +54,8 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   const sendAdaptationRequest = (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
+    presentationMode: "original" | "wizard",
+    activePlan: AdaptiveUiPlan,
   ): boolean => {
     const socket = socketRef.current;
     if (
@@ -89,6 +93,11 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
             friction,
             consecutiveHighWindows,
             independentSignal,
+            presentationMode,
+            previousPlan: {
+              title: activePlan.title,
+              stepTitles: activePlan.steps.map((step) => step.title),
+            },
           },
         }),
       );

@@ -269,6 +269,8 @@ describe("telemetry WebSocket integration", () => {
         friction: second.payload,
         consecutiveHighWindows: 2,
         independentSignal: "validation-errors",
+        presentationMode: "original",
+        previousPlan: null,
       },
     });
 

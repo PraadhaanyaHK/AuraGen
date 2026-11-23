@@ -160,6 +160,8 @@ describe("telemetry and friction contracts", () => {
       friction: validFriction,
       consecutiveHighWindows: 2,
       independentSignal: "validation-errors",
+      presentationMode: "original",
+      previousPlan: null,
     };
     expect(AdaptationRequestSchema.safeParse(request).success).toBe(true);
     expect(

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,24 +14,46 @@ import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
 
 class DisconnectedMockWebSocket {
   static readonly OPEN = 1;
-  readonly readyState = 3;
+  static instances: DisconnectedMockWebSocket[] = [];
+  readyState = 1;
+  private readonly listeners = new Map<string, Set<EventListener>>();
+  sent: string[] = [];
 
-  addEventListener(): void {}
+  constructor() {
+    DisconnectedMockWebSocket.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
   close(): void {}
-  send(): void {}
+  send(message: string): void {
+    this.sent.push(message);
+  }
+
+  receive(message: unknown): void {
+    for (const listener of this.listeners.get("message") ?? []) {
+      listener(new MessageEvent("message", { data: JSON.stringify(message) }));
+    }
+  }
 }
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", DisconnectedMockWebSocket);
-});
+}, 10_000);
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
+  DisconnectedMockWebSocket.instances = [];
 });
 
 describe("synthetic personal loan form", () => {
   it("renders all ten catalogue fields with their approved control types", () => {
+    vi.useFakeTimers();
     render(<App />);
 
     for (const definition of FINANCIAL_FORM_FIELDS) {
@@ -111,7 +133,7 @@ describe("synthetic personal loan form", () => {
     await user.click(screen.getByRole("button", { name: "Simplify now" }));
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Restore original" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore original" }));
     expect(screen.getByRole("heading", { name: "Personal loan details" })).toBeInTheDocument();
     expect(
       screen.getByRole("checkbox", { name: "Automatic simplification" }),
@@ -135,6 +157,94 @@ describe("synthetic personal loan form", () => {
     await user.click(screen.getByRole("button", { name: "Original form" }));
     expect(screen.getByLabelText(/Monthly take-home income/i)).toHaveValue(60000);
   });
+
+  it("preserves values and navigation state through layouts and a second plan", async () => {
+    vi.useFakeTimers();
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Employment type/i), { target: { value: "Salaried" } });
+    fireEvent.change(screen.getByLabelText(/Years in current work/i), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText(/Monthly take-home income/i), { target: { value: "60000" } });
+    fireEvent.change(screen.getByLabelText(/Requested loan amount/i), { target: { value: "250000" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Wizard preview" }));
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Original form" }));
+    expect(screen.getByLabelText(/Employment type/i)).toHaveValue("Salaried");
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(7);
+    expect(screen.getByLabelText(/Monthly take-home income/i)).toHaveValue(60000);
+    expect(screen.getByLabelText(/Requested loan amount/i)).toHaveValue(250000);
+
+    fireEvent.click(screen.getByRole("button", { name: "Wizard preview" }));
+    const socket = DisconnectedMockWebSocket.instances.at(-1);
+    expect(socket).toBeDefined();
+    const telemetryRequest = socket?.sent
+      .map((message) => JSON.parse(message))
+      .find((message) => message.event === "telemetry.summary");
+    expect(telemetryRequest).toBeDefined();
+    const secondPlan = {
+      schemaVersion: "1.0",
+      title: "A reorganized demo review",
+      introduction: "The same fields are retained.",
+      steps: [
+        { id: "step-1", title: "Work", description: "Review work details.", fieldIds: ["employmentStatus", "experienceYears"] },
+        { id: "step-2", title: "Cash flow", description: "Review cash flow.", fieldIds: ["monthlyTakeHomeIncome", "otherMonthlyIncome", "monthlyExpenses"] },
+        { id: "step-3", title: "Commitments", description: "Review commitments.", fieldIds: ["currentMonthlyEmi", "activeLoanCount"] },
+        { id: "step-4", title: "Request", description: "Review the request.", fieldIds: ["requestedLoanAmount", "tenureMonths", "loanPurpose"] },
+      ],
+    };
+    act(() => {
+      socket?.receive({
+        protocolVersion: "1.1",
+        requestId: telemetryRequest.requestId,
+        event: "friction.score",
+        payload: {
+          score: 65,
+          level: "high",
+          features: {
+            validationErrors: 0.5, repeatedClicks: 0.5, hesitations: 0,
+            backtracks: 0, fieldSwitches: 0, pointerCorrections: 0,
+          },
+          explanations: [
+            { feature: "validationErrors", count: 2, normalizedValue: 0.5, weight: 0.3, weightedContribution: 0.15, included: true, explanation: "Validation errors occurred." },
+            { feature: "repeatedClicks", count: 0, normalizedValue: 0, weight: 0.2, weightedContribution: 0, included: true, explanation: "No repeated clicks." },
+            { feature: "hesitations", count: 0, normalizedValue: 0, weight: 0.2, weightedContribution: 0, included: true, explanation: "No hesitation." },
+            { feature: "backtracks", count: 0, normalizedValue: 0, weight: 0.15, weightedContribution: 0, included: true, explanation: "No backtracking." },
+            { feature: "fieldSwitches", count: 0, normalizedValue: 0, weight: 0.1, weightedContribution: 0, included: true, explanation: "No field switching." },
+            { feature: "pointerCorrections", count: 0, normalizedValue: 0, weight: 0.05, weightedContribution: 0, included: false, explanation: "Insufficient mouse samples." },
+          ],
+          observedSignals: ["validation-errors"],
+          triggerEligibility: { automatic: true, manual: true, blockers: [] },
+          eligibleForAdaptation: true,
+        },
+      });
+    });
+    const request = socket?.sent.map((message) => JSON.parse(message)).find(
+      (message) => message.event === "adaptation.request",
+    );
+    expect(request).toBeDefined();
+    act(() => {
+      socket?.receive({
+        protocolVersion: "1.1",
+        requestId: request.requestId,
+        event: "adaptation.plan",
+        payload: secondPlan,
+      });
+    });
+
+    expect(screen.getByRole("heading", { name: "Work" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(7);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByLabelText(/Employment type/i)).toHaveValue("Salaried");
+    expect(screen.getByLabelText(/Requested loan amount/i)).toHaveValue(250000);
+  }, 10_000);
 
   it("keeps form completion available while telemetry is disconnected", async () => {
     const user = userEvent.setup();

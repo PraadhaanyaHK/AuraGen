@@ -8,6 +8,7 @@ import {
   scoreInteractionFriction,
 } from "../src/friction.js";
 import type { TelemetrySummary } from "../src/contracts.js";
+import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
 import { TELEMETRY_SUMMARY_INTERVAL_MS } from "../src/telemetry.js";
 import { useTelemetrySocket } from "../src/telemetrySocket.js";
 
@@ -219,7 +220,12 @@ describe("telemetry WebSocket client", () => {
 
     let sent = false;
     act(() => {
-      sent = result.current.sendAdaptationRequest(eligible, 2);
+      sent = result.current.sendAdaptationRequest(
+        eligible,
+        2,
+        "wizard",
+        createFallbackAdaptiveUiPlan(),
+      );
     });
     expect(sent).toBe(true);
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({

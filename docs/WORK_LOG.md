@@ -142,6 +142,23 @@ It is not a verbatim transcript.
 - Identified the Babel AST static-analysis demonstration and live provider
   credentials as incomplete/not configured rather than completed.
 
+## Week 3 - Day 1 - Task 3A: Contextual generation and form-state continuity
+
+- Expanded generation context with form ID, schema version, section relationships,
+  approved field metadata, aggregate friction reasons and relevant score
+  explanations, presentation mode, and previous approved plan metadata.
+- Kept live context data-only and excluded values, typed text, identifiers, pointer
+  coordinates, DOM contents, and executable instructions. Strengthened system
+  restrictions against context-injected instructions and field-definition changes.
+- Added presentation-mode and prior-plan metadata to adaptation requests.
+- Preserved wizard step position and centralized React Hook Form state across
+  layout transitions and subsequent plans. Added layout-transition heading focus
+  and invalid-current-field focus after failed advancement.
+- Added continuity coverage for multi-field entry, Back/Next navigation,
+  original-layout restoration, and receiving a second plan.
+- Verification: 56 tests passed across 7 test files; typecheck, lint, production
+  build, and `git diff --check` passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

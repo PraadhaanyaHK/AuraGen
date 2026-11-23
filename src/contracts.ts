@@ -424,6 +424,11 @@ export const AdaptationRequestSchema = z
     friction: FrictionScoreResponseSchema,
     consecutiveHighWindows: z.number().int().min(2).max(100),
     independentSignal: IndependentTaskSignalSchema,
+    presentationMode: z.enum(["original", "wizard"]),
+    previousPlan: z.object({
+      title: z.string().trim().min(1).max(80),
+      stepTitles: z.array(z.string().trim().min(1).max(60)).min(3).max(5),
+    }).strict().nullable(),
   })
   .strict()
   .superRefine(({ friction }, context) => {
