@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "../src/App.js";
+import { AdaptiveRendererErrorBoundary, App } from "../src/App.js";
 import {
   FIELD_IDS,
   FINANCIAL_FORM_FIELDS,
@@ -47,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   DisconnectedMockWebSocket.instances = [];
 });
@@ -138,6 +139,63 @@ describe("synthetic personal loan form", () => {
     expect(
       screen.getByRole("checkbox", { name: "Automatic simplification" }),
     ).toBeChecked();
+  });
+
+  it("keeps the original form and recovery controls available when the backend is offline", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(
+      screen.getByLabelText(/Years in current work/i),
+      "7",
+    );
+    await user.click(screen.getByRole("button", { name: "Simplify now" }));
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(7);
+    expect(screen.getByRole("button", { name: "Simplify now" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Restore original" })).toBeEnabled();
+  });
+
+  it("recovers from an adaptive renderer exception by rendering its fallback", () => {
+    const onError = vi.fn();
+    function BrokenRenderer(): never {
+      throw new Error("renderer details must not be logged");
+    }
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <AdaptiveRendererErrorBoundary
+        fallback={<p role="status">Original layout remains.</p>}
+        onError={onError}
+      >
+        <BrokenRenderer />
+      </AdaptiveRendererErrorBoundary>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Original layout remains.",
+    );
+    expect(onError).toHaveBeenCalledOnce();
+    expect(console.error).toHaveBeenCalledWith("Adaptive renderer failed");
+  });
+
+  it("falls back to synchronous field focus if the animation frame is unavailable", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const years = screen.getByLabelText(/Years in current work/i);
+    await user.type(years, "51");
+    await user.click(screen.getByRole("button", { name: "Wizard preview" }));
+    const wizardYears = screen.getByLabelText(/Years in current work/i);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => {
+      throw new Error("animation unavailable");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText(/focus animation is unavailable/i))
+      .toBeInTheDocument();
+    expect(wizardYears).toHaveFocus();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
   });
 
   it("renders the fallback plan with all ten fields exactly once and preserves values", async () => {

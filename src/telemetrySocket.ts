@@ -19,17 +19,43 @@ export type TelemetryConnectionStatus =
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const RESPONSE_TIMEOUT_MS = 15_000;
+const GENERATION_RESPONSE_TIMEOUT_MS = 35_000;
 const DEFAULT_TELEMETRY_WS_URL = "ws://127.0.0.1:8081/telemetry";
+
+export type AdaptationPlanResponse = {
+  requestId: string;
+  plan: AdaptiveUiPlan;
+};
 
 function createRequestId(): string {
   return globalThis.crypto.randomUUID();
 }
 
+function getResponseEnvelope(data: unknown): {
+  event?: unknown;
+  requestId?: unknown;
+} {
+  if (typeof data !== "string") {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (typeof parsed !== "object" || parsed === null) {
+      return {};
+    }
+    const envelope = parsed as { event?: unknown; requestId?: unknown };
+    return { event: envelope.event, requestId: envelope.requestId };
+  } catch {
+    return {};
+  }
+}
+
 export function useTelemetrySocket(summary: TelemetrySummary): {
   connectionStatus: TelemetryConnectionStatus;
   frictionResponse: FrictionScoreResponse | null;
-  adaptationPlan: AdaptiveUiPlan | null;
+  adaptationPlan: AdaptationPlanResponse | null;
   generationError: string | null;
+  cancelAdaptationRequest: () => void;
   sendAdaptationRequest: (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
@@ -44,12 +70,23 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   const [frictionResponse, setFrictionResponse] =
     useState<FrictionScoreResponse | null>(null);
   const [adaptationPlan, setAdaptationPlan] =
-    useState<AdaptiveUiPlan | null>(null);
+    useState<AdaptationPlanResponse | null>(null);
   const [generationError, setGenerationError] =
     useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const pendingAdaptationRequestRef = useRef<string | null>(null);
+  const latestAdaptationRequestRef = useRef<string | null>(null);
   const adaptationResponseTimerRef = useRef<number | undefined>(undefined);
+  const cancelAdaptationRequest = () => {
+    pendingAdaptationRequestRef.current = null;
+    latestAdaptationRequestRef.current = null;
+    if (adaptationResponseTimerRef.current !== undefined) {
+      window.clearTimeout(adaptationResponseTimerRef.current);
+      adaptationResponseTimerRef.current = undefined;
+    }
+    setAdaptationPlan(null);
+    setGenerationError(null);
+  };
 
   const sendAdaptationRequest = (
     friction: FrictionScoreResponse,
@@ -58,11 +95,11 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     activePlan: AdaptiveUiPlan,
   ): boolean => {
     const socket = socketRef.current;
-    if (
-      socket === null ||
-      socket.readyState !== WebSocket.OPEN ||
-      pendingAdaptationRequestRef.current !== null
-    ) {
+    if (pendingAdaptationRequestRef.current !== null) {
+      return false;
+    }
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      setGenerationError("The backend is unavailable. The original form is unchanged.");
       return false;
     }
 
@@ -80,6 +117,9 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
 
     const requestId = createRequestId();
     pendingAdaptationRequestRef.current = requestId;
+    latestAdaptationRequestRef.current = requestId;
+    setAdaptationPlan(null);
+    setGenerationError(null);
     try {
       socket.send(
         JSON.stringify({
@@ -104,14 +144,16 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       adaptationResponseTimerRef.current = window.setTimeout(() => {
         if (pendingAdaptationRequestRef.current === requestId) {
           pendingAdaptationRequestRef.current = null;
+          latestAdaptationRequestRef.current = null;
           adaptationResponseTimerRef.current = undefined;
           setGenerationError("Live plan generation timed out.");
         }
-      }, RESPONSE_TIMEOUT_MS);
+      }, GENERATION_RESPONSE_TIMEOUT_MS);
       return true;
     } catch {
       pendingAdaptationRequestRef.current = null;
-      setGenerationError("Unable to send the generation request.");
+      latestAdaptationRequestRef.current = null;
+      setGenerationError("The backend is unavailable. The original form is unchanged.");
       return false;
     }
   };
@@ -122,6 +164,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
+    let connectionStabilityTimer: number | undefined;
     let responseTimer: number | undefined;
     let pendingRequestId: string | null = null;
     let reconnectAttempt = 0;
@@ -154,6 +197,13 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
         if (disposed || socket !== activeSocket) {
           return;
         }
+        if (connectionStabilityTimer !== undefined) {
+          window.clearTimeout(connectionStabilityTimer);
+        }
+        connectionStabilityTimer = window.setTimeout(() => {
+          reconnectAttempt = 0;
+          connectionStabilityTimer = undefined;
+        }, 10_000);
         setConnectionStatus("connected");
         console.debug("Telemetry WebSocket connected");
       });
@@ -186,7 +236,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
               clearPendingRequest();
               setFrictionResponse(message.payload);
             } else if (message.event === "adaptation.plan") {
-              if (message.requestId !== pendingAdaptationRequestRef.current) {
+              if (message.requestId !== latestAdaptationRequestRef.current) {
                 return;
               }
               pendingAdaptationRequestRef.current = null;
@@ -195,22 +245,41 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
                 adaptationResponseTimerRef.current = undefined;
               }
               setGenerationError(null);
-              setAdaptationPlan(message.payload);
+              setAdaptationPlan({
+                requestId: message.requestId,
+                plan: message.payload,
+              });
             } else if (message.event === "error") {
-              if (message.requestId === pendingAdaptationRequestRef.current) {
+              if (message.requestId === latestAdaptationRequestRef.current) {
                 pendingAdaptationRequestRef.current = null;
+                latestAdaptationRequestRef.current = null;
                 if (adaptationResponseTimerRef.current !== undefined) {
                   window.clearTimeout(adaptationResponseTimerRef.current);
                   adaptationResponseTimerRef.current = undefined;
                 }
                 setGenerationError(message.payload.message);
               }
-              console.warn("Telemetry summary rejected", {
+              console.warn("WebSocket request rejected", {
                 code: message.payload.code,
                 retryable: message.payload.retryable,
               });
             }
           } catch (error) {
+            const envelope = getResponseEnvelope(event.data);
+            if (
+              envelope.event === "adaptation.plan" &&
+              envelope.requestId === latestAdaptationRequestRef.current
+            ) {
+              pendingAdaptationRequestRef.current = null;
+              latestAdaptationRequestRef.current = null;
+              if (adaptationResponseTimerRef.current !== undefined) {
+                window.clearTimeout(adaptationResponseTimerRef.current);
+                adaptationResponseTimerRef.current = undefined;
+              }
+              setGenerationError(
+                "The adaptive plan was invalid. The original form is unchanged.",
+              );
+            }
             console.warn(
               "Ignoring invalid telemetry server message",
               error instanceof MessageInputError
@@ -233,11 +302,23 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
         }
         socket = null;
         socketRef.current = null;
+        if (connectionStabilityTimer !== undefined) {
+          window.clearTimeout(connectionStabilityTimer);
+          connectionStabilityTimer = undefined;
+        }
         clearPendingRequest();
+        const generationWasPending =
+          pendingAdaptationRequestRef.current !== null;
         pendingAdaptationRequestRef.current = null;
+        latestAdaptationRequestRef.current = null;
         if (adaptationResponseTimerRef.current !== undefined) {
           window.clearTimeout(adaptationResponseTimerRef.current);
           adaptationResponseTimerRef.current = undefined;
+        }
+        if (generationWasPending) {
+          setGenerationError(
+            "The backend disconnected during generation. The original form is unchanged.",
+          );
         }
         setConnectionStatus("disconnected");
         console.debug("Telemetry WebSocket disconnected");
@@ -298,12 +379,16 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer);
       }
+      if (connectionStabilityTimer !== undefined) {
+        window.clearTimeout(connectionStabilityTimer);
+      }
       if (summaryTimer !== undefined) {
         window.clearInterval(summaryTimer);
       }
       clearPendingRequest();
       socketRef.current = null;
       pendingAdaptationRequestRef.current = null;
+      latestAdaptationRequestRef.current = null;
       if (adaptationResponseTimerRef.current !== undefined) {
         window.clearTimeout(adaptationResponseTimerRef.current);
         adaptationResponseTimerRef.current = undefined;
@@ -318,6 +403,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     frictionResponse,
     adaptationPlan,
     generationError,
+    cancelAdaptationRequest,
     sendAdaptationRequest,
   };
 }

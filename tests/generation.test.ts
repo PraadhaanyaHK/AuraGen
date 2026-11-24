@@ -83,15 +83,16 @@ describe("structured generation pipeline", () => {
   });
 
   it("rejects malformed provider output and returns the safe fallback", async () => {
+    const provider = providerReturning({
+      ...validModelPlan,
+      steps: [
+        { ...validModelPlan.steps[0], fieldIds: ["employmentStatus"] },
+        ...validModelPlan.steps.slice(1),
+      ],
+    });
     const result = await generateAdaptiveUiPlan(input, {
       mode: "live",
-      provider: providerReturning({
-        ...validModelPlan,
-        steps: [
-          { ...validModelPlan.steps[0], fieldIds: ["employmentStatus"] },
-          ...validModelPlan.steps.slice(1),
-        ],
-      }),
+      provider,
       apiKey: "test-key",
     });
 
@@ -99,46 +100,94 @@ describe("structured generation pipeline", () => {
       fallback: true,
       error: { code: "invalid-output" },
     });
+    expect(vi.mocked(provider.generate)).toHaveBeenCalledTimes(1);
     expect(result.plan.steps.flatMap((step) => step.fieldIds)).toEqual(FIELD_IDS);
   });
 
-  it("falls back safely when live credentials are missing or the provider fails", async () => {
+  it("retries transient provider failures once and reports retryable exhaustion", async () => {
+    const provider = {
+      generate: vi.fn()
+        .mockRejectedValueOnce(
+          Object.assign(new Error("provider unavailable"), {
+            code: "ECONNRESET",
+          }),
+        )
+        .mockResolvedValue(validModelPlan),
+    };
+    const result = await generateAdaptiveUiPlan(input, {
+      mode: "live",
+      apiKey: "test-key",
+      retryDelayMs: 0,
+      provider,
+    });
+    expect(result).toMatchObject({ fallback: false, mode: "live" });
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+
+    const unavailableProvider = {
+      generate: vi.fn(async () => {
+        throw Object.assign(new Error("provider unavailable"), {
+          code: "ECONNRESET",
+        });
+      }),
+    };
+    await expect(
+      generateAdaptiveUiPlan(input, {
+        mode: "live",
+        apiKey: "test-key",
+        retryDelayMs: 0,
+        provider: unavailableProvider,
+      }),
+    ).resolves.toMatchObject({
+      fallback: true,
+      error: { code: "provider-failure", retryable: true },
+    });
+    expect(unavailableProvider.generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a provider rejection classified as non-retryable", async () => {
+    const provider = {
+      generate: vi.fn(async () => {
+        throw Object.assign(new Error("request rejected"), { status: 400 });
+      }),
+    };
+    await expect(
+      generateAdaptiveUiPlan(input, {
+        mode: "live",
+        apiKey: "test-key",
+        provider,
+      }),
+    ).resolves.toMatchObject({
+      fallback: true,
+      error: { code: "provider-failure", retryable: false },
+    });
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a safe fallback when live credentials are missing", async () => {
     await expect(
       generateAdaptiveUiPlan(input, { mode: "live", apiKey: "" }),
     ).resolves.toMatchObject({
       fallback: true,
       error: { code: "missing-credentials" },
     });
+  });
 
+  it("uses a safe fallback after bounded provider timeouts", async () => {
+    const provider = {
+      generate: vi.fn(() => new Promise<never>(() => {})),
+    };
     await expect(
       generateAdaptiveUiPlan(input, {
         mode: "live",
         apiKey: "test-key",
-        provider: {
-          generate: vi.fn(async () => {
-            throw new Error("provider unavailable");
-          }),
-        },
+        timeoutMs: 5,
+        retryDelayMs: 0,
+        provider,
       }),
     ).resolves.toMatchObject({
       fallback: true,
-      error: { code: "provider-failure" },
+      error: { code: "timeout", retryable: true },
     });
-  });
-
-  it("returns a safe fallback when the provider exceeds the timeout", async () => {
-    const result = await generateAdaptiveUiPlan(input, {
-      mode: "live",
-      apiKey: "test-key",
-      timeoutMs: 5,
-      provider: {
-        generate: vi.fn(() => new Promise<never>(() => {})),
-      },
-    });
-
-    expect(result).toMatchObject({
-      fallback: true,
-      error: { code: "timeout" },
-    });
+    expect(provider.generate).toHaveBeenCalledTimes(2);
   });
 });

@@ -660,15 +660,22 @@ export type ServerMessage = z.infer<typeof ServerMessageSchema>;
 
 export type MessageInputErrorCode =
   | "INVALID_MESSAGE"
-  | "MESSAGE_TOO_LARGE";
+  | "MESSAGE_TOO_LARGE"
+  | "INVALID_ADAPTATION_REQUEST";
 
 export class MessageInputError extends Error {
   readonly code: MessageInputErrorCode;
+  readonly requestId: string | undefined;
 
-  constructor(code: MessageInputErrorCode, message: string) {
+  constructor(
+    code: MessageInputErrorCode,
+    message: string,
+    requestId?: string,
+  ) {
     super(message);
     this.name = "MessageInputError";
     this.code = code;
+    this.requestId = requestId;
   }
 }
 
@@ -706,9 +713,25 @@ function decodeBoundedMessage(input: MessageInput): unknown {
 export function parseClientMessage(
   input: MessageInput,
 ): ClientMessage {
-  const parsed = ClientMessageSchema.safeParse(decodeBoundedMessage(input));
+  const decoded = decodeBoundedMessage(input);
+  const parsed = ClientMessageSchema.safeParse(decoded);
   if (!parsed.success) {
-    throw new MessageInputError("INVALID_MESSAGE", "Invalid client message envelope or payload");
+    const candidate =
+      typeof decoded === "object" && decoded !== null
+        ? (decoded as { event?: unknown; requestId?: unknown })
+        : {};
+    const parsedRequestId = z.uuid().safeParse(candidate.requestId);
+    const requestId = parsedRequestId.success
+      ? parsedRequestId.data
+      : undefined;
+    const isAdaptationRequest = candidate.event === "adaptation.request";
+    throw new MessageInputError(
+      isAdaptationRequest ? "INVALID_ADAPTATION_REQUEST" : "INVALID_MESSAGE",
+      isAdaptationRequest
+        ? "Adaptive generation request was rejected."
+        : "Invalid client message envelope or payload",
+      requestId,
+    );
   }
   return parsed.data;
 }

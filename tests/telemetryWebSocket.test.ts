@@ -258,7 +258,7 @@ describe("telemetry WebSocket integration", () => {
     }
 
     const requestId = crypto.randomUUID();
-    const response = await sendAndRead(socket, {
+    const adaptationRequest = {
       protocolVersion: CONTRACT_VERSION,
       requestId,
       event: "adaptation.request",
@@ -272,13 +272,39 @@ describe("telemetry WebSocket integration", () => {
         presentationMode: "original",
         previousPlan: null,
       },
-    });
+    };
+    const response = await sendAndRead(socket, adaptationRequest);
 
     expect(response).toMatchObject({
       requestId,
       event: "adaptation.plan",
       payload: {
         schemaVersion: "1.0",
+      },
+    });
+    expect(await sendAndRead(socket, adaptationRequest)).toMatchObject({
+      requestId,
+      event: "error",
+      payload: { code: "INVALID_MESSAGE", retryable: false },
+    });
+  });
+
+  it("correlates adaptive request validation rejection without echoing its payload", async () => {
+    const socket = await connect(() => 1_000_000);
+    const requestId = crypto.randomUUID();
+    const response = await sendAndRead(socket, {
+      protocolVersion: CONTRACT_VERSION,
+      requestId,
+      event: "adaptation.request",
+      payload: {},
+    });
+
+    expect(response).toMatchObject({
+      requestId,
+      event: "error",
+      payload: {
+        code: "INVALID_ADAPTATION_REQUEST",
+        retryable: false,
       },
     });
   });
