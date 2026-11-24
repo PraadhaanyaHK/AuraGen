@@ -84,11 +84,29 @@ export function createTelemetryWebSocketServer({
         console.warn("Telemetry message rejected", { code: error.code });
         sendError(
           socket,
-          "00000000-0000-4000-8000-000000000000",
+          error.requestId ?? "00000000-0000-4000-8000-000000000000",
           error.code,
           error.message,
         );
         return;
+      }
+
+      if (seenRequestIds.has(message.requestId)) {
+        console.warn("Duplicate request rejected", { event: message.event });
+        sendError(
+          socket,
+          message.requestId,
+          "INVALID_MESSAGE",
+          "requestId has already been used on this connection",
+        );
+        return;
+      }
+      seenRequestIds.add(message.requestId);
+      if (seenRequestIds.size > REQUEST_ID_CACHE_SIZE) {
+        const oldestRequestId = seenRequestIds.values().next().value;
+        if (oldestRequestId !== undefined) {
+          seenRequestIds.delete(oldestRequestId);
+        }
       }
 
       if (message.event !== "telemetry.summary") {
@@ -117,6 +135,20 @@ export function createTelemetryWebSocketServer({
             if (socket.readyState !== WebSocket.OPEN) {
               return;
             }
+            if (result.error !== undefined) {
+              console.warn("Adaptive generation failed", {
+                code: result.error.code,
+                retryable: result.error.retryable,
+              });
+              sendError(
+                socket,
+                message.requestId,
+                "GENERATION_FAILED",
+                result.error.message,
+                result.error.retryable,
+              );
+              return;
+            }
             const response: ServerMessage = {
               protocolVersion: CONTRACT_VERSION,
               requestId: message.requestId,
@@ -126,33 +158,18 @@ export function createTelemetryWebSocketServer({
             socket.send(JSON.stringify(response));
           })
           .catch(() => {
+            console.warn("Adaptive generation failed", {
+              code: "GENERATION_FAILED",
+            });
             sendError(
               socket,
               message.requestId,
               "GENERATION_FAILED",
               "Generation failed; the approved original layout remains available.",
-              true,
+              false,
             );
           });
         return;
-      }
-
-      if (seenRequestIds.has(message.requestId)) {
-        console.warn("Duplicate telemetry request rejected");
-        sendError(
-          socket,
-          message.requestId,
-          "INVALID_MESSAGE",
-          "requestId has already been used on this connection",
-        );
-        return;
-      }
-      seenRequestIds.add(message.requestId);
-      if (seenRequestIds.size > REQUEST_ID_CACHE_SIZE) {
-        const oldestRequestId = seenRequestIds.values().next().value;
-        if (oldestRequestId !== undefined) {
-          seenRequestIds.delete(oldestRequestId);
-        }
       }
 
       const nowMs = now();

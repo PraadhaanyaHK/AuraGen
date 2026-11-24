@@ -159,6 +159,29 @@ It is not a verbatim transcript.
 - Verification: 56 tests passed across 7 test files; typecheck, lint, production
   build, and `git diff --check` passed.
 
+## Week 3 - Task 3B: Resilience and failure recovery
+
+- Kept provider timeouts abortable and added at most one retry by default (up to
+  two when explicitly configured), only for timeouts and classified transient
+  network/HTTP failures. Invalid schema output and non-retryable failures are
+  not retried.
+- Deduplicated request IDs for both telemetry and generation on each WebSocket
+  connection. The client tracks the latest generation request, rejects stale
+  responses, and cancels pending responses when restoring or resetting.
+- Improved disconnect handling with stable-connection-aware bounded reconnect
+  backoff. Backend, provider, timeout, invalid-plan, and request-validation
+  failures leave the original form and current values intact.
+- Added an adaptive renderer error boundary and synchronous focus fallback when
+  animation-frame scheduling fails. Kept manual simplification and restore
+  controls available regardless of service status.
+- Limited diagnostics to fixed messages and safe error/event metadata; no
+  request payloads, form values, or raw provider errors are logged.
+- Added provider retry/timeout, request deduplication, stale response, backend
+  disconnect/reconnect, validation rejection, invalid plan, renderer exception,
+  and animation fallback tests.
+- Verification: 66 tests passed across 7 test files; typecheck, lint, production
+  build, and `git diff --check` passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or

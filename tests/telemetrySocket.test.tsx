@@ -7,7 +7,10 @@ import {
   evaluateAdaptationTrigger,
   scoreInteractionFriction,
 } from "../src/friction.js";
-import type { TelemetrySummary } from "../src/contracts.js";
+import type {
+  FrictionScoreResponse,
+  TelemetrySummary,
+} from "../src/contracts.js";
 import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
 import { TELEMETRY_SUMMARY_INTERVAL_MS } from "../src/telemetry.js";
 import { useTelemetrySocket } from "../src/telemetrySocket.js";
@@ -93,6 +96,35 @@ const scoreResponse = evaluateAdaptationTrigger(
   createAdaptationTriggerState(),
   Date.parse(emptySummary.windowEnd),
 ).scoreResponse;
+const eligibleFrictionResponse: FrictionScoreResponse = {
+  ...scoreResponse,
+  level: "high",
+  observedSignals: ["validation-errors"],
+  eligibleForAdaptation: true,
+  triggerEligibility: {
+    ...scoreResponse.triggerEligibility,
+    automatic: true,
+    manual: true,
+    blockers: [],
+  },
+};
+
+const receiveAdaptationError = (
+  socket: MockWebSocket,
+  requestId: string,
+  code: "GENERATION_FAILED" | "INVALID_ADAPTATION_REQUEST",
+  retryable: boolean,
+) =>
+  socket.receive({
+    protocolVersion: "1.1",
+    requestId,
+    event: "error",
+    payload: {
+      code,
+      message: "The request was rejected.",
+      retryable,
+    },
+  });
 
 afterEach(() => {
   cleanup();
@@ -173,6 +205,11 @@ describe("telemetry WebSocket client", () => {
       });
     });
     expect(result.current.frictionResponse).toBeNull();
+    act(() => secondSocket.close());
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(MockWebSocket.instances).toHaveLength(2);
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(MockWebSocket.instances).toHaveLength(3);
     unmount();
   });
 
@@ -235,6 +272,203 @@ describe("telemetry WebSocket client", () => {
         independentSignal: "validation-errors",
       },
     });
+    unmount();
+  });
+
+  it("prevents duplicate generation and ignores a response after cancellation", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "00000000-0000-4000-8000-000000000001",
+    });
+    const { result, unmount } = renderHook(() =>
+      useTelemetrySocket(emptySummary),
+    );
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.open());
+    let firstRequestAccepted = false;
+    let duplicateAccepted = true;
+    act(() => {
+      firstRequestAccepted = result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+      duplicateAccepted = result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+    });
+    expect(firstRequestAccepted).toBe(true);
+    expect(duplicateAccepted).toBe(false);
+    expect(socket.sent).toHaveLength(1);
+    const requestId = JSON.parse(socket.sent[0]!).requestId as string;
+    act(() => result.current.cancelAdaptationRequest());
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId,
+        event: "adaptation.plan",
+        payload: createFallbackAdaptiveUiPlan(),
+      }),
+    );
+    expect(result.current.adaptationPlan).toBeNull();
+    expect(result.current.generationError).toBeNull();
+    unmount();
+  });
+
+  it("rejects a response from an earlier request after a newer request starts", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    let requestSequence = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: () =>
+        `00000000-0000-4000-8000-${String(++requestSequence).padStart(12, "0")}`,
+    });
+    const { result, unmount } = renderHook(() =>
+      useTelemetrySocket(emptySummary),
+    );
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.open());
+    act(() => {
+      result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+    });
+    const firstId = JSON.parse(socket.sent[0]!).requestId as string;
+    const fallbackPlan = createFallbackAdaptiveUiPlan();
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: firstId,
+        event: "adaptation.plan",
+        payload: fallbackPlan,
+      }),
+    );
+    expect(result.current.adaptationPlan?.requestId).toBe(firstId);
+
+    act(() => {
+      result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "wizard",
+        fallbackPlan,
+      );
+    });
+    const secondId = JSON.parse(socket.sent[1]!).requestId as string;
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: firstId,
+        event: "adaptation.plan",
+        payload: fallbackPlan,
+      }),
+    );
+    expect(result.current.adaptationPlan).toBeNull();
+
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: secondId,
+        event: "adaptation.plan",
+        payload: fallbackPlan,
+      }),
+    );
+    expect(result.current.adaptationPlan?.requestId).toBe(secondId);
+    unmount();
+  });
+
+  it("reports backend unavailability and disconnects without failing the form hook", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "00000000-0000-4000-8000-000000000001",
+    });
+    const { result, unmount } = renderHook(() =>
+      useTelemetrySocket(emptySummary),
+    );
+    let sent = true;
+    act(() => {
+      sent = result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+    });
+    expect(sent).toBe(false);
+    expect(result.current.generationError).toMatch(/backend is unavailable/i);
+
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.open());
+    act(() => {
+      result.current.cancelAdaptationRequest();
+      result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+      socket.close();
+    });
+    expect(result.current.connectionStatus).toBe("disconnected");
+    expect(result.current.generationError).toMatch(/backend disconnected/i);
+    unmount();
+  });
+
+  it("reports a rejected generation request and an invalid plan response", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    let requestSequence = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: () =>
+        `00000000-0000-4000-8000-${String(++requestSequence).padStart(12, "0")}`,
+    });
+    const { result, unmount } = renderHook(() =>
+      useTelemetrySocket(emptySummary),
+    );
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.open());
+    act(() => {
+      result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+    });
+    let requestId = JSON.parse(socket.sent[0]!).requestId as string;
+    act(() =>
+      receiveAdaptationError(
+        socket,
+        requestId,
+        "INVALID_ADAPTATION_REQUEST",
+        false,
+      ),
+    );
+    expect(result.current.generationError).toBe("The request was rejected.");
+
+    act(() => {
+      result.current.sendAdaptationRequest(
+        eligibleFrictionResponse,
+        2,
+        "original",
+        createFallbackAdaptiveUiPlan(),
+      );
+    });
+    requestId = JSON.parse(socket.sent[1]!).requestId as string;
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId,
+        event: "adaptation.plan",
+        payload: { schemaVersion: "1.0", steps: [] },
+      }),
+    );
+    expect(result.current.generationError).toMatch(/adaptive plan was invalid/i);
+    expect(result.current.adaptationPlan).toBeNull();
     unmount();
   });
 });

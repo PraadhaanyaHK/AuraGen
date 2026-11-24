@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  Component,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   useForm,
   type UseFormReturn,
@@ -36,6 +42,32 @@ import {
 import { useTelemetrySocket } from "./telemetrySocket.js";
 
 type Presentation = "original" | "wizard";
+
+type RendererBoundaryProps = {
+  children: ReactNode;
+  fallback: ReactNode;
+  onError: () => void;
+};
+
+export class AdaptiveRendererErrorBoundary extends Component<
+  RendererBoundaryProps,
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(): void {
+    console.error("Adaptive renderer failed");
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
+}
 
 function OriginalForm({
   form,
@@ -89,6 +121,8 @@ function WizardForm({
   setStepIndex,
   completedSteps,
   setCompletedSteps,
+  onValidationFailure,
+  onAnimationFailure,
 }: {
   form: UseFormReturn<FormValues>;
   telemetry: FinancialFormTelemetryEvents;
@@ -97,6 +131,8 @@ function WizardForm({
   setStepIndex: (index: number) => void;
   completedSteps: ReadonlySet<number>;
   setCompletedSteps: (steps: ReadonlySet<number>) => void;
+  onValidationFailure: () => void;
+  onAnimationFailure: () => void;
 }) {
   const [checked, setChecked] = useState(false);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -112,20 +148,32 @@ function WizardForm({
 
   const goNext = async () => {
     telemetry.click("wizard-continue");
-    const valid = await form.trigger(currentFieldIds);
+    let valid: boolean;
+    try {
+      valid = await form.trigger(currentFieldIds);
+    } catch {
+      onValidationFailure();
+      return;
+    }
     if (valid) {
       setCompletedSteps(new Set([...completedSteps, stepIndex]));
       setStepIndex(Math.min(stepIndex + 1, plan.steps.length - 1));
     } else {
       telemetry.validationFailure();
-      window.requestAnimationFrame(() => {
+      const focusInvalidField = () => {
         const invalidId = currentFieldIds.find(
           (fieldId) => form.getFieldState(fieldId).invalid,
         );
         if (invalidId) {
           document.getElementById(invalidId)?.focus();
         }
-      });
+      };
+      try {
+        window.requestAnimationFrame(focusInvalidField);
+      } catch {
+        focusInvalidField();
+        onAnimationFailure();
+      }
     }
   };
 
@@ -240,6 +288,7 @@ export function App() {
     frictionResponse: serverFrictionResponse,
     adaptationPlan,
     generationError,
+    cancelAdaptationRequest,
     sendAdaptationRequest,
   } = useTelemetrySocket(summary);
   const [triggerState, setTriggerState] = useState(
@@ -249,6 +298,7 @@ export function App() {
   const pendingAutomaticAdaptationRef = useRef(false);
   const [frictionResponse, setFrictionResponse] =
     useState<FrictionScoreResponse | null>(null);
+  const [rendererError, setRendererError] = useState<string | null>(null);
   const [activePlan, setActivePlan] =
     useState<AdaptiveUiPlan>(createFallbackAdaptiveUiPlan);
   const form = useForm<FormValues>({
@@ -276,7 +326,6 @@ export function App() {
           presentation,
           activePlan,
         );
-        setPresentation("wizard");
       }
     }
   }, [serverFrictionResponse]);
@@ -286,20 +335,31 @@ export function App() {
       return;
     }
     try {
-      const nextPlan = validateAdaptiveUiPlan(adaptationPlan);
+      const nextPlan = validateAdaptiveUiPlan(adaptationPlan.plan);
       setActivePlan(nextPlan);
       setWizardStepIndex((current) =>
         Math.min(current, nextPlan.steps.length - 1),
       );
       setPresentation("wizard");
-    } catch (error) {
+    } catch {
       setActivePlan(createFallbackAdaptiveUiPlan());
       setPresentation("original");
-      console.warn("Ignoring invalid adaptive UI plan", error);
+      console.warn("Ignoring invalid adaptive UI plan", {
+        event: "adaptation.plan",
+      });
     }
   }, [adaptationPlan]);
 
+  useEffect(() => {
+    if (generationError !== null) {
+      setActivePlan(createFallbackAdaptiveUiPlan());
+      setPresentation("original");
+    }
+  }, [generationError]);
+
   const simplifyNow = () => {
+    cancelAdaptationRequest();
+    setRendererError(null);
     const scored = scoreInteractionFriction(summary);
     const evaluation = requestManualSimplification(
       summary,
@@ -317,6 +377,7 @@ export function App() {
   };
 
   const restoreOriginal = () => {
+    cancelAdaptationRequest();
     const nextState = restoreOriginalPresentation(
       triggerStateRef.current,
       summary.windowEnd,
@@ -414,25 +475,24 @@ export function App() {
           <button
             className="button button-primary"
             type="button"
-            disabled={presentation === "wizard"}
             onClick={simplifyNow}
           >
             Simplify now
           </button>
-          {presentation === "wizard" && (
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={restoreOriginal}
-            >
-              Restore original
-            </button>
-          )}
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={restoreOriginal}
+          >
+            Restore original
+          </button>
           <button
             className="button button-secondary"
             type="button"
             onClick={() => {
+              cancelAdaptationRequest();
               form.reset();
+              setActivePlan(createFallbackAdaptiveUiPlan());
               setPresentation("original");
             }}
           >
@@ -503,15 +563,36 @@ export function App() {
       {presentation === "original" ? (
         <OriginalForm form={form} telemetry={events} />
       ) : (
-        <WizardForm
-          form={form}
-          telemetry={events}
-          plan={activePlan}
-          stepIndex={wizardStepIndex}
-          setStepIndex={setWizardStepIndex}
-          completedSteps={completedSteps}
-          setCompletedSteps={setCompletedSteps}
-        />
+        <AdaptiveRendererErrorBoundary
+          fallback={<OriginalForm form={form} telemetry={events} />}
+          onError={() => {
+            setRendererError(
+              "The adaptive layout could not be displayed. The original form is unchanged.",
+            );
+            setPresentation("original");
+          }}
+        >
+          <WizardForm
+            form={form}
+            telemetry={events}
+            plan={activePlan}
+            stepIndex={wizardStepIndex}
+            setStepIndex={setWizardStepIndex}
+            completedSteps={completedSteps}
+            setCompletedSteps={setCompletedSteps}
+            onValidationFailure={() => {
+              setRendererError(
+                "The current step could not be validated. The original form is unchanged.",
+              );
+              setPresentation("original");
+            }}
+            onAnimationFailure={() =>
+              setRendererError(
+                "Step focus animation is unavailable. Keyboard navigation remains available.",
+              )
+            }
+          />
+        </AdaptiveRendererErrorBoundary>
       )}
 
       <p className="telemetry-status" role="status" aria-live="polite">
@@ -519,7 +600,12 @@ export function App() {
       </p>
       {generationError !== null && (
         <p className="telemetry-status" role="status">
-          Plan unavailable: {generationError} Showing the prebuilt form.
+          Plan unavailable: {generationError} The original form remains available.
+        </p>
+      )}
+      {rendererError !== null && (
+        <p className="telemetry-status" role="status">
+          {rendererError}
         </p>
       )}
       <details className="telemetry-inspector">

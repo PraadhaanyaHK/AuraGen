@@ -12,6 +12,8 @@ import {
 import { z } from "zod";
 
 const GENERATION_TIMEOUT_MS = 15_000;
+const GENERATION_RETRY_DELAY_MS = 100;
+const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_MODEL = "gpt-4o";
 const approvedFieldIds = FINANCIAL_FORM_METADATA.fields.map(({ id }) => id) as [
   (typeof FINANCIAL_FORM_METADATA.fields)[number]["id"],
@@ -97,6 +99,7 @@ export type GenerationResult = {
   readonly error?: {
     readonly code: GenerationFailureCode;
     readonly message: string;
+    readonly retryable: boolean;
   };
 };
 
@@ -173,17 +176,65 @@ function safeFailure(
   mode: "mock" | "live",
   code: GenerationFailureCode,
   message: string,
+  retryable = false,
 ): GenerationResult {
   return {
     plan: createMockPlan(),
     mode,
     fallback: true,
-    error: { code, message },
+    error: { code, message, retryable },
   };
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+class GenerationTimeoutError extends Error {
+  constructor() {
+    super("Generation provider timed out");
+    this.name = "GenerationTimeoutError";
+  }
+}
+
+function isRetryableProviderFailure(error: unknown): boolean {
+  if (error instanceof z.ZodError || error instanceof GenerationTimeoutError) {
+    return error instanceof GenerationTimeoutError;
+  }
+
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const details = error as {
+    code?: unknown;
+    name?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  const status =
+    typeof details.status === "number"
+      ? details.status
+      : typeof details.statusCode === "number"
+        ? details.statusCode
+        : undefined;
+  if (status !== undefined) {
+    return status === 408 || status === 429 || status >= 500;
+  }
+
+  const retryableCodes = new Set([
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+    "ENETUNREACH",
+    "EPIPE",
+    "APIConnectionError",
+    "RateLimitError",
+    "InternalServerError",
+  ]);
+  const code =
+    typeof details.code === "string"
+      ? details.code
+      : typeof details.name === "string"
+        ? details.name
+        : undefined;
+  return code !== undefined && retryableCodes.has(code);
 }
 
 export function createLiveGenerationProvider(config: {
@@ -235,7 +286,7 @@ async function withTimeout<T>(
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
           controller.abort();
-          reject(new Error("Generation provider timed out"));
+          reject(new GenerationTimeoutError());
         }, timeoutMs);
       }),
     ]);
@@ -253,6 +304,8 @@ export async function generateAdaptiveUiPlan(
     apiKey?: string;
     model?: string;
     timeoutMs?: number;
+    maxRetries?: number;
+    retryDelayMs?: number;
     provider?: GenerationProvider;
   } = {},
 ): Promise<GenerationResult> {
@@ -280,34 +333,51 @@ export async function generateAdaptiveUiPlan(
       model: options.model ?? process.env.OPENAI_MODEL ?? DEFAULT_MODEL,
     });
 
+  const maxRetries = Math.max(
+    0,
+    Math.floor(Math.min(2, options.maxRetries ?? DEFAULT_MAX_RETRIES)),
+  );
+  const retryDelayMs = Math.max(
+    0,
+    Math.min(5_000, options.retryDelayMs ?? GENERATION_RETRY_DELAY_MS),
+  );
+  let raw: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      raw = await withTimeout(
+        (signal) => provider.generate(payload, signal),
+        options.timeoutMs ?? GENERATION_TIMEOUT_MS,
+      );
+      break;
+    } catch (error) {
+      const retryable = isRetryableProviderFailure(error);
+      if (!retryable || attempt === maxRetries) {
+        return safeFailure(
+          mode,
+          error instanceof GenerationTimeoutError ? "timeout" : "provider-failure",
+          error instanceof GenerationTimeoutError
+            ? "Live generation timed out."
+            : "Live generation failed; the approved original layout is unchanged.",
+          retryable,
+        );
+      }
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, retryDelayMs),
+      );
+    }
+  }
+
   try {
-    const raw = await withTimeout(
-      (signal) => provider.generate(payload, signal),
-      options.timeoutMs ?? GENERATION_TIMEOUT_MS,
-    );
     return {
       plan: toAdaptiveUiPlan(raw),
       mode,
       fallback: false,
     };
-  } catch (error) {
-    if (
-      isAbortError(error) ||
-      (error instanceof Error && error.message.includes("timed out"))
-    ) {
-      return safeFailure(mode, "timeout", "Live generation timed out.");
-    }
-    if (error instanceof z.ZodError) {
-      return safeFailure(
-        mode,
-        "invalid-output",
-        "Live generation returned an invalid UI plan.",
-      );
-    }
+  } catch {
     return safeFailure(
       mode,
-      "provider-failure",
-      "Live generation failed; the approved original layout is unchanged.",
+      "invalid-output",
+      "Live generation returned an invalid UI plan.",
     );
   }
 }
