@@ -15,6 +15,8 @@ const GENERATION_TIMEOUT_MS = 15_000;
 const GENERATION_RETRY_DELAY_MS = 100;
 const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_MODEL = "gpt-4o";
+const MAX_MODEL_OUTPUT_BYTES = 16 * 1024;
+const MAX_PROVIDER_COMPLETION_TOKENS = 512;
 const approvedFieldIds = FINANCIAL_FORM_METADATA.fields.map(({ id }) => id) as [
   (typeof FINANCIAL_FORM_METADATA.fields)[number]["id"],
   ...(typeof FINANCIAL_FORM_METADATA.fields)[number]["id"][],
@@ -165,6 +167,13 @@ function createMockPlan(): AdaptiveUiPlan {
 }
 
 function toAdaptiveUiPlan(input: unknown): AdaptiveUiPlan {
+  const serialized = JSON.stringify(input);
+  if (
+    serialized === undefined ||
+    Buffer.byteLength(serialized, "utf8") > MAX_MODEL_OUTPUT_BYTES
+  ) {
+    throw new RangeError("Generated UI plan exceeds the accepted size");
+  }
   const modelPlan = ModelPlanSchema.parse(input);
   return validateAdaptiveUiPlan({
     schemaVersion: ADAPTIVE_UI_SCHEMA_VERSION,
@@ -244,6 +253,7 @@ export function createLiveGenerationProvider(config: {
   const model = new ChatOpenAI({
     apiKey: config.apiKey,
     model: config.model ?? DEFAULT_MODEL,
+    maxTokens: MAX_PROVIDER_COMPLETION_TOKENS,
   }).withStructuredOutput(ModelPlanSchema, {
     name: "auragen_adaptive_ui_plan",
     strict: true,

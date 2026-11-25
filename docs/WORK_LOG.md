@@ -182,6 +182,33 @@ It is not a verbatim transcript.
 - Verification: 66 tests passed across 7 test files; typecheck, lint, production
   build, and `git diff --check` passed.
 
+## Week 3 - Task 3C day 3: Security hardening
+
+- Reviewed browser telemetry, WebSocket handling, provider prompts/logging,
+  generated-plan validation, and renderer boundaries. Found and fixed a
+  medium-severity WebSocket issue: cross-origin connections were accepted and
+  client-supplied eligibility could trigger generation without a qualifying
+  server-scored window.
+- Restricted the WebSocket server to loopback binds and exact allowed browser
+  origins. Adaptation generation now requires a current, server-scored
+  eligible window; that eligibility is one-use and the trusted server score
+  supplies generation context.
+- Capped provider completion at 512 tokens and serialized generated output at
+  16 KiB, retaining schema text bounds, timeout, and safe fallback behavior.
+- Added regression tests for disallowed origins, non-loopback binds, forged
+  eligibility, one-use authorization, prompt-injection-shaped context, and
+  oversized provider output.
+- Added `SECURITY-REVIEW.md` documenting the finding, verification boundaries,
+  prototype limitations, and dependency/configuration risks. The Babel AST
+  static-analysis demonstration remains unimplemented and separate from the
+  runtime renderer.
+- The initial dependency audit reported seven moderate findings in the
+  development lint dependency chain. Upgraded `typescript-eslint` to 8.74.0;
+  the post-update audit reported zero vulnerabilities.
+- Verification: 71 tests passed across 7 files; typecheck, lint, production
+  build, `npm audit`, and `git diff --check` passed. The production bundle
+  contained no `OPENAI_API_KEY` or `new Function` matches.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
