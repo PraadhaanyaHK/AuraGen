@@ -8,6 +8,10 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) {
 const server = await startTelemetryWebSocketServer({
   host: process.env.TELEMETRY_WS_HOST ?? "127.0.0.1",
   port,
+  allowedOrigins: process.env.TELEMETRY_WS_ALLOWED_ORIGINS
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0),
 });
 const address = server.address();
 if (address === null || typeof address === "string") {

@@ -8,7 +8,9 @@ import {
   parseServerMessage,
   type TelemetrySummary,
 } from "../src/contracts.js";
+import { scoreInteractionFriction } from "../src/friction.js";
 import { startTelemetryWebSocketServer } from "../server/startTelemetryWebSocket.js";
+import { generateAdaptiveUiPlan } from "../server/generation.js";
 
 const emptyCounts: TelemetrySummary["counts"] = {
   focusEvents: 0,
@@ -74,7 +76,11 @@ describe("telemetry WebSocket integration", () => {
 
   afterEach(async () => {
     if (client !== undefined && client.readyState !== WebSocket.CLOSED) {
-      client.close();
+      if (client.readyState === WebSocket.CONNECTING) {
+        client.terminate();
+      } else {
+        client.close();
+      }
       await once(client, "close");
     }
     if (server !== undefined) {
@@ -85,20 +91,112 @@ describe("telemetry WebSocket integration", () => {
     }
   });
 
-  async function connect(now: () => number) {
+  async function connect(
+    now: () => number,
+    generatePlan?: NonNullable<
+      Parameters<typeof startTelemetryWebSocketServer>[0]["generatePlan"]
+    >,
+  ) {
     server = await startTelemetryWebSocketServer({
       host: "127.0.0.1",
       port: 0,
       now,
+      generatePlan,
     });
     const address = server.address();
     if (address === null || typeof address === "string") {
       throw new Error("Test WebSocket server did not bind to a TCP port");
     }
-    client = new WebSocket(`ws://127.0.0.1:${address.port}/telemetry`);
+    client = new WebSocket(`ws://127.0.0.1:${address.port}/telemetry`, {
+      origin: "http://127.0.0.1:5173",
+    });
     await once(client, "open");
     return client;
   }
+
+  it("rejects WebSocket handshakes from unapproved origins", async () => {
+    server = await startTelemetryWebSocketServer({
+      host: "127.0.0.1",
+      port: 0,
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Test WebSocket server did not bind to a TCP port");
+    }
+
+    const rejectedSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/telemetry`,
+      {
+        origin: "https://attacker.example",
+      },
+    );
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      rejectedSocket.once("unexpected-response", (_request, response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      });
+      rejectedSocket.once("error", reject);
+    });
+    expect(statusCode).toBe(403);
+  });
+
+  it("refuses to bind outside loopback", async () => {
+    await expect(
+      startTelemetryWebSocketServer({ host: "0.0.0.0", port: 0 }),
+    ).rejects.toThrow("loopback host");
+  });
+
+  it("rejects forged eligibility without a server-scored trigger", async () => {
+    let generationCalled = false;
+    const socket = await connect(
+      () => 1_000_000,
+      async () => {
+        generationCalled = true;
+        throw new Error("Generation must not be called");
+      },
+    );
+    const highSummary = summary(1_000_000, {
+      validationErrors: 2,
+      repeatedClicks: 2,
+      prolongedUnchangedHesitations: 2,
+      backtracks: 2,
+      fieldSwitches: 8,
+      pointerCorrections: 10,
+      mouseSamples: 10,
+    });
+    const score = scoreInteractionFriction({ counts: highSummary.counts });
+    const requestId = crypto.randomUUID();
+    const response = await sendAndRead(socket, {
+      protocolVersion: CONTRACT_VERSION,
+      requestId,
+      event: "adaptation.request",
+      payload: {
+        schemaVersion: "1.0",
+        form: FINANCIAL_FORM_METADATA,
+        telemetry: highSummary,
+        friction: {
+          ...score,
+          triggerEligibility: {
+            automatic: true,
+            manual: false,
+            blockers: [],
+          },
+          eligibleForAdaptation: true,
+        },
+        consecutiveHighWindows: 2,
+        independentSignal: "validation-errors",
+        presentationMode: "original",
+        previousPlan: null,
+      },
+    });
+
+    expect(response).toMatchObject({
+      requestId,
+      event: "error",
+      payload: { code: "INVALID_ADAPTATION_REQUEST" },
+    });
+    expect(generationCalled).toBe(false);
+  });
 
   it("returns a correlated low score for a normal aggregate summary", async () => {
     const now = 1_000_000;
@@ -233,7 +331,14 @@ describe("telemetry WebSocket integration", () => {
 
   it("returns a validated mock adaptation plan for an eligible adaptation request", async () => {
     let now = 1_000_000;
-    const socket = await connect(() => now);
+    let generationScore: number | undefined;
+    const socket = await connect(
+      () => now,
+      async (input) => {
+        generationScore = input.frictionScore?.score;
+        return generateAdaptiveUiPlan(input, { mode: "mock" });
+      },
+    );
     const highCounts = {
       validationErrors: 2,
       repeatedClicks: 2,
@@ -266,7 +371,7 @@ describe("telemetry WebSocket integration", () => {
         schemaVersion: "1.0",
         form: FINANCIAL_FORM_METADATA,
         telemetry: summary(now, highCounts),
-        friction: second.payload,
+        friction: { ...second.payload, score: 100 },
         consecutiveHighWindows: 2,
         independentSignal: "validation-errors",
         presentationMode: "original",
@@ -281,6 +386,16 @@ describe("telemetry WebSocket integration", () => {
       payload: {
         schemaVersion: "1.0",
       },
+    });
+    expect(generationScore).toBe(second.payload.score);
+    expect(
+      await sendAndRead(socket, {
+        ...adaptationRequest,
+        requestId: crypto.randomUUID(),
+      }),
+    ).toMatchObject({
+      event: "error",
+      payload: { code: "INVALID_ADAPTATION_REQUEST" },
     });
     expect(await sendAndRead(socket, adaptationRequest)).toMatchObject({
       requestId,
