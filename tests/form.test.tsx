@@ -141,6 +141,85 @@ describe("synthetic personal loan form", () => {
     ).toBeChecked();
   });
 
+  it("supports keyboard validation and announces focused wizard steps", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const years = screen.getByLabelText(/Years in current work/i);
+    years.focus();
+    await user.type(years, "51");
+    await user.tab();
+
+    expect(await screen.findByText("Enter no more than 50.")).toBeInTheDocument();
+    expect(years).toHaveAttribute("aria-invalid", "true");
+    expect(years).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("experienceYears-error"),
+    );
+
+    const checkButton = screen.getByRole("button", { name: "Check demo fields" });
+    checkButton.focus();
+    await user.keyboard("{Enter}");
+    expect(years).toHaveFocus();
+    await user.clear(years);
+    await user.type(years, "7");
+
+    const wizardButton = screen.getByRole("button", { name: "Wizard preview" });
+    wizardButton.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("heading", { name: "Employment profile" }))
+      .toHaveFocus();
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    continueButton.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("heading", { name: "Monthly cash flow" }))
+      .toHaveFocus();
+    expect(screen.getByText("Step 2 of 4: Monthly cash flow")).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    expect(screen.getByRole("progressbar")).toHaveAccessibleName(
+      "Wizard progress, step 2 of 4",
+    );
+  });
+
+  it("restores focus to the layout heading after returning from the wizard", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Wizard preview" }));
+    expect(screen.getByRole("heading", { name: "Employment profile" }))
+      .toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByRole("heading", { name: "Personal loan details" }))
+      .toHaveFocus();
+  });
+
+  it("keeps layout controls usable when reduced motion is requested", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Wizard preview" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("heading", { name: "Monthly cash flow" }))
+      .toHaveFocus();
+  });
+
   it("keeps the original form and recovery controls available when the backend is offline", async () => {
     const user = userEvent.setup();
     render(<App />);
