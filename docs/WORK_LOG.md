@@ -235,7 +235,27 @@ It is not a verbatim transcript.
 - Verification: 78 tests passed across 8 files; typecheck, lint, production
   build, and `git diff --check` passed.
 
+## Week 3 - Readiness review - 2026-11-27
+
+- Reviewed form-state continuity, wizard navigation/restoration, generation
+  recovery, timeouts/retries, stale responses, security boundaries, telemetry
+  privacy, accessibility, and pilot reproducibility.
+- Found and fixed a stale-response race: restoring/resetting/manual
+  simplification now invalidates an in-flight telemetry score as well as plan
+  generation, so an old eligible score cannot start a new plan afterward.
+- Added regression coverage for touched invalid field state across layouts,
+  delayed eligible scores after restore, generation failure preserving values,
+  and the maximum retry cap. Updated the second-plan continuity test to respond
+  to the current telemetry request after cancellation.
+- Added `docs/WEEK_3_READINESS_REPORT.md` with review results and limitations;
+  corrected the current implementation summary in `docs/PROJECT_CONTEXT.md`.
+- Verification: 82 tests passed across 8 files; lint, typecheck, production
+  build, and `git diff --check` passed. A browser check with reduced motion
+  enabled verified keyboard wizard navigation and focus restoration. The
+  shared page's telemetry WebSocket was offline during that check; the form
+  remained usable and WebSocket integration remains covered by tests.
+
 ## Next
 
-Wait for the user's next implementation task. Do not begin a later task or
-week without an explicit request.
+Wait for the user's Week 4 instructions. Do not begin Week 4 work without an
+explicit request.

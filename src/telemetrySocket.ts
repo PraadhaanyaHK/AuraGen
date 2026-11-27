@@ -55,7 +55,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   frictionResponse: FrictionScoreResponse | null;
   adaptationPlan: AdaptationPlanResponse | null;
   generationError: string | null;
-  cancelAdaptationRequest: () => void;
+  cancelPendingAdaptation: () => void;
   sendAdaptationRequest: (
     friction: FrictionScoreResponse,
     consecutiveHighWindows: number,
@@ -74,10 +74,17 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
   const [generationError, setGenerationError] =
     useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const pendingTelemetryRequestRef = useRef<string | null>(null);
+  const telemetryResponseTimerRef = useRef<number | undefined>(undefined);
   const pendingAdaptationRequestRef = useRef<string | null>(null);
   const latestAdaptationRequestRef = useRef<string | null>(null);
   const adaptationResponseTimerRef = useRef<number | undefined>(undefined);
-  const cancelAdaptationRequest = () => {
+  const cancelPendingAdaptation = () => {
+    pendingTelemetryRequestRef.current = null;
+    if (telemetryResponseTimerRef.current !== undefined) {
+      window.clearTimeout(telemetryResponseTimerRef.current);
+      telemetryResponseTimerRef.current = undefined;
+    }
     pendingAdaptationRequestRef.current = null;
     latestAdaptationRequestRef.current = null;
     if (adaptationResponseTimerRef.current !== undefined) {
@@ -165,15 +172,13 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let connectionStabilityTimer: number | undefined;
-    let responseTimer: number | undefined;
-    let pendingRequestId: string | null = null;
     let reconnectAttempt = 0;
 
     const clearPendingRequest = () => {
-      pendingRequestId = null;
-      if (responseTimer !== undefined) {
-        window.clearTimeout(responseTimer);
-        responseTimer = undefined;
+      pendingTelemetryRequestRef.current = null;
+      if (telemetryResponseTimerRef.current !== undefined) {
+        window.clearTimeout(telemetryResponseTimerRef.current);
+        telemetryResponseTimerRef.current = undefined;
       }
     };
 
@@ -223,14 +228,14 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
             }
             const message = parseServerMessage(event.data);
             if (
-              message.requestId !== pendingRequestId &&
+              message.requestId !== pendingTelemetryRequestRef.current &&
               message.requestId !== pendingAdaptationRequestRef.current
             ) {
               console.debug("Ignoring stale telemetry response");
               return;
             }
             if (message.event === "friction.score") {
-              if (message.requestId !== pendingRequestId) {
+              if (message.requestId !== pendingTelemetryRequestRef.current) {
                 return;
               }
               clearPendingRequest();
@@ -347,7 +352,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
       if (socket === null || socket.readyState !== WebSocket.OPEN) {
         return;
       }
-      if (pendingRequestId !== null) {
+      if (pendingTelemetryRequestRef.current !== null) {
         console.debug("Skipping telemetry send while a response is pending");
         return;
       }
@@ -362,9 +367,9 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
             payload: summaryRef.current,
           }),
         );
-        pendingRequestId = requestId;
-        responseTimer = window.setTimeout(() => {
-          if (pendingRequestId === requestId) {
+        pendingTelemetryRequestRef.current = requestId;
+        telemetryResponseTimerRef.current = window.setTimeout(() => {
+          if (pendingTelemetryRequestRef.current === requestId) {
             clearPendingRequest();
             console.debug("Telemetry response timed out");
           }
@@ -403,7 +408,7 @@ export function useTelemetrySocket(summary: TelemetrySummary): {
     frictionResponse,
     adaptationPlan,
     generationError,
-    cancelAdaptationRequest,
+    cancelPendingAdaptation,
     sendAdaptationRequest,
   };
 }

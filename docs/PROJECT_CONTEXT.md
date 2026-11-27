@@ -70,14 +70,15 @@ specification defines it.
 
 ## Current repository and development
 
-The repository is a single root package, not a monorepo. The current renderer
-is a Vite/React application; it includes an original one-page form and a
-temporary hardcoded wizard preview using the shared catalogue and field
-registry. Local provisional friction scoring and automatic/manual adaptation
-triggers are implemented. A separate, non-persistent WebSocket service now
-accepts aggregate summaries, validates and scores them, and returns trigger
-eligibility. Adaptive-plan generation and the broader API service remain
-unimplemented.
+The repository is a single root package, not a monorepo. The renderer is a
+Vite/React application with an original form and a plan-driven 3-5 step wizard.
+Both layouts share one React Hook Form state instance and the application-owned
+field registry. Local provisional friction scoring and automatic/manual
+adaptation triggers are implemented. A loopback-only WebSocket service scores
+aggregate summaries and, when eligible, returns a validated data-only plan.
+Deterministic mock generation is the default; an optional server-side live
+provider requires explicit configuration. The broader production API and the
+separate Babel AST static-analysis demonstration remain unimplemented.
 
 Use Node.js 20+ and npm 10+. Common checks:
 

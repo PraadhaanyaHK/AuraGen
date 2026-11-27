@@ -305,7 +305,7 @@ describe("telemetry WebSocket client", () => {
     expect(duplicateAccepted).toBe(false);
     expect(socket.sent).toHaveLength(1);
     const requestId = JSON.parse(socket.sent[0]!).requestId as string;
-    act(() => result.current.cancelAdaptationRequest());
+    act(() => result.current.cancelPendingAdaptation());
     act(() =>
       socket.receive({
         protocolVersion: "1.1",
@@ -405,7 +405,7 @@ describe("telemetry WebSocket client", () => {
     const socket = MockWebSocket.instances[0]!;
     act(() => socket.open());
     act(() => {
-      result.current.cancelAdaptationRequest();
+      result.current.cancelPendingAdaptation();
       result.current.sendAdaptationRequest(
         eligibleFrictionResponse,
         2,

@@ -9,8 +9,10 @@ import {
   FIELD_IDS,
   FINANCIAL_FORM_FIELDS,
   FINANCIAL_FORM_SECTIONS,
+  type FrictionScoreResponse,
 } from "../src/contracts.js";
 import { createFallbackAdaptiveUiPlan } from "../src/adaptivePlan.js";
+import { scoreInteractionFriction } from "../src/friction.js";
 
 class DisconnectedMockWebSocket {
   static readonly OPEN = 1;
@@ -38,6 +40,23 @@ class DisconnectedMockWebSocket {
       listener(new MessageEvent("message", { data: JSON.stringify(message) }));
     }
   }
+}
+
+function makeEligibleFrictionResponse(): FrictionScoreResponse {
+  const friction = scoreInteractionFriction({
+    counts: {
+      validationErrors: 2,
+      repeatedClicks: 2,
+      prolongedUnchangedHesitations: 2,
+      backtracks: 2,
+      fieldSwitches: 8,
+    },
+  });
+  return {
+    ...friction,
+    triggerEligibility: { automatic: true, manual: true, blockers: [] },
+    eligibleForAdaptation: true,
+  };
 }
 
 beforeEach(() => {
@@ -127,6 +146,31 @@ describe("synthetic personal loan form", () => {
     ).toEqual(["Personal loan details", ...FINANCIAL_FORM_SECTIONS]);
   });
 
+  it("preserves a touched field's value and validation error across layout changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const years = screen.getByLabelText(/Years in current work/i);
+    await user.type(years, "51");
+    await user.tab();
+
+    expect(await screen.findByText("Enter no more than 50.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Wizard preview" }));
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(51);
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByText("Enter no more than 50.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(51);
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByText("Enter no more than 50.")).toBeInTheDocument();
+  });
+
   it("supports manual simplification and restoring with automatic adaptation paused", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -194,6 +238,93 @@ describe("synthetic personal loan form", () => {
     await user.click(screen.getByRole("button", { name: "Restore original" }));
     expect(screen.getByRole("heading", { name: "Personal loan details" }))
       .toHaveFocus();
+  });
+
+  it("ignores an eligible score response that arrives after restoring the original layout", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "00000000-0000-4000-8000-000000000001",
+    });
+    render(<App />);
+    const socket = DisconnectedMockWebSocket.instances.at(-1)!;
+
+    fireEvent.click(screen.getByRole("button", { name: "Wizard preview" }));
+    act(() => vi.advanceTimersByTime(5_000));
+    const telemetryRequest = socket.sent
+      .map((message) => JSON.parse(message))
+      .find((message) => message.event === "telemetry.summary");
+    expect(telemetryRequest).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore original" }));
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: telemetryRequest.requestId,
+        event: "friction.score",
+        payload: makeEligibleFrictionResponse(),
+      }),
+    );
+
+    expect(
+      socket.sent
+        .map((message) => JSON.parse(message))
+        .some((message) => message.event === "adaptation.request"),
+    ).toBe(false);
+    expect(
+      screen.getByRole("heading", { name: "Personal loan details" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the original form values intact when generation fails", () => {
+    vi.useFakeTimers();
+    let requestSequence = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: () =>
+        `00000000-0000-4000-8000-${String(++requestSequence).padStart(12, "0")}`,
+    });
+    render(<App />);
+    const socket = DisconnectedMockWebSocket.instances.at(-1)!;
+    fireEvent.change(screen.getByLabelText(/Years in current work/i), {
+      target: { value: "7" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Wizard preview" }));
+    act(() => vi.advanceTimersByTime(5_000));
+
+    const telemetryRequest = socket.sent
+      .map((message) => JSON.parse(message))
+      .find((message) => message.event === "telemetry.summary");
+    expect(telemetryRequest).toBeDefined();
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: telemetryRequest.requestId,
+        event: "friction.score",
+        payload: makeEligibleFrictionResponse(),
+      }),
+    );
+    const adaptationRequest = socket.sent
+      .map((message) => JSON.parse(message))
+      .find((message) => message.event === "adaptation.request");
+    expect(adaptationRequest).toBeDefined();
+
+    act(() =>
+      socket.receive({
+        protocolVersion: "1.1",
+        requestId: adaptationRequest.requestId,
+        event: "error",
+        payload: {
+          code: "GENERATION_FAILED",
+          message: "Live generation failed; the approved original layout is unchanged.",
+          retryable: true,
+        },
+      }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Personal loan details" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/Years in current work/i)).toHaveValue(7);
+    expect(screen.getByText(/Live generation failed/)).toBeInTheDocument();
   });
 
   it("keeps layout controls usable when reduced motion is requested", async () => {
@@ -319,11 +450,15 @@ describe("synthetic personal loan form", () => {
     expect(screen.getByLabelText(/Requested loan amount/i)).toHaveValue(250000);
 
     fireEvent.click(screen.getByRole("button", { name: "Wizard preview" }));
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
     const socket = DisconnectedMockWebSocket.instances.at(-1);
     expect(socket).toBeDefined();
     const telemetryRequest = socket?.sent
       .map((message) => JSON.parse(message))
-      .find((message) => message.event === "telemetry.summary");
+      .filter((message) => message.event === "telemetry.summary")
+      .at(-1);
     expect(telemetryRequest).toBeDefined();
     const secondPlan = {
       schemaVersion: "1.0",

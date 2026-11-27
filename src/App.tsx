@@ -324,7 +324,7 @@ export function App() {
     frictionResponse: serverFrictionResponse,
     adaptationPlan,
     generationError,
-    cancelAdaptationRequest,
+    cancelPendingAdaptation,
     sendAdaptationRequest,
   } = useTelemetrySocket(summary);
   const [triggerState, setTriggerState] = useState(
@@ -396,7 +396,7 @@ export function App() {
   }, [generationError]);
 
   const simplifyNow = () => {
-    cancelAdaptationRequest();
+    cancelPendingAdaptation();
     setRendererError(null);
     const scored = scoreInteractionFriction(summary);
     const evaluation = requestManualSimplification(
@@ -415,7 +415,7 @@ export function App() {
   };
 
   const restoreOriginal = () => {
-    cancelAdaptationRequest();
+    cancelPendingAdaptation();
     const nextState = restoreOriginalPresentation(
       triggerStateRef.current,
       summary.windowEnd,
@@ -529,7 +529,7 @@ export function App() {
             className="button button-secondary"
             type="button"
             onClick={() => {
-              cancelAdaptationRequest();
+              cancelPendingAdaptation();
               form.reset();
               setActivePlan(createFallbackAdaptiveUiPlan());
               setPresentation("original");

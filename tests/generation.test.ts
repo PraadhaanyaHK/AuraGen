@@ -195,6 +195,29 @@ describe("structured generation pipeline", () => {
     expect(unavailableProvider.generate).toHaveBeenCalledTimes(2);
   });
 
+  it("caps configured retries at two retries", async () => {
+    const provider = {
+      generate: vi.fn(async () => {
+        throw Object.assign(new Error("provider unavailable"), {
+          code: "ECONNRESET",
+        });
+      }),
+    };
+    const result = await generateAdaptiveUiPlan(input, {
+      mode: "live",
+      apiKey: "test-key",
+      provider,
+      maxRetries: 100,
+      retryDelayMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      fallback: true,
+      error: { code: "provider-failure", retryable: true },
+    });
+    expect(provider.generate).toHaveBeenCalledTimes(3);
+  });
+
   it("does not retry a provider rejection classified as non-retryable", async () => {
     const provider = {
       generate: vi.fn(async () => {
