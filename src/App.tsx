@@ -6,6 +6,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  LazyMotion,
+  MotionConfig,
+  domAnimation,
+  m,
+  useReducedMotion,
+} from "framer-motion";
+import {
   useForm,
   type UseFormReturn,
 } from "react-hook-form";
@@ -82,6 +89,12 @@ function OriginalForm({
   const onInvalid = () => {
     setChecked(false);
     telemetry.validationFailure();
+    const invalidField = FINANCIAL_FORM_FIELDS.find(
+      (definition) => form.getFieldState(definition.id).invalid,
+    );
+    if (invalidField) {
+      form.setFocus(invalidField.id);
+    }
   };
 
   return (
@@ -136,6 +149,10 @@ function WizardForm({
 }) {
   const [checked, setChecked] = useState(false);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const prefersReducedMotion = useReducedMotion() ?? false;
+  const stepTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.14, ease: "easeOut" as const };
   const step = plan.steps[stepIndex]!;
   const currentFieldIds = resolveApprovedFieldIds(step.fieldIds);
   const fields = currentFieldIds
@@ -193,19 +210,34 @@ function WizardForm({
         },
       )}
     >
-      <div className="wizard-progress" aria-label="Wizard progress">
+      <div className="wizard-progress">
         <span>
           Step {stepIndex + 1} of {plan.steps.length}
         </span>
         <progress
           value={stepIndex + 1}
           max={plan.steps.length}
-          aria-label={`Step ${stepIndex + 1} of ${plan.steps.length}`}
+          aria-label={`Wizard progress, step ${stepIndex + 1} of ${plan.steps.length}`}
         />
       </div>
-      <section className="form-section" aria-labelledby="wizard-step-title">
-        <h2 id="wizard-step-title" ref={stepHeadingRef} tabIndex={-1}>{step.title}</h2>
-        <p className="step-description">{step.description}</p>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        Step {stepIndex + 1} of {plan.steps.length}: {step.title}
+      </p>
+      <m.section
+        key={stepIndex}
+        className="form-section"
+        aria-labelledby="wizard-step-title"
+        aria-describedby="wizard-step-description"
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={stepTransition}
+      >
+        <h2 id="wizard-step-title" ref={stepHeadingRef} tabIndex={-1}>
+          {step.title}
+        </h2>
+        <p className="step-description" id="wizard-step-description">
+          {step.description}
+        </p>
         <div className="field-grid">
           {fields.map((definition) => (
             <RegisteredField
@@ -217,7 +249,7 @@ function WizardForm({
             />
           ))}
         </div>
-      </section>
+      </m.section>
       <div className="wizard-actions">
         <button
           className="button button-secondary"
@@ -276,6 +308,10 @@ function ValidationAction({
 }
 
 export function App() {
+  const prefersReducedMotion = useReducedMotion() ?? false;
+  const layoutTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.18, ease: "easeOut" as const };
   const [presentation, setPresentation] = useState<Presentation>("original");
   const [wizardStepIndex, setWizardStepIndex] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<ReadonlySet<number>>(
@@ -307,7 +343,9 @@ export function App() {
   });
 
   useEffect(() => {
-    presentationHeadingRef.current?.focus();
+    if (presentation === "original") {
+      presentationHeadingRef.current?.focus();
+    }
   }, [presentation]);
 
   useEffect(() => {
@@ -417,7 +455,8 @@ export function App() {
   };
 
   return (
-    <main className="page-shell">
+    <MotionConfig reducedMotion="user">
+      <main className="page-shell">
       <header className="page-header">
         <a className="brand" href="/" aria-label="AuraGen Research Demo home">
           <span className="brand-mark" aria-hidden="true">A</span>
@@ -546,54 +585,66 @@ export function App() {
         </section>
       )}
 
-      <div className="form-heading">
-        <div>
-          <h2 ref={presentationHeadingRef} tabIndex={-1}>
-            {presentation === "original" ? "Personal loan details" : "Step-by-step preview"}
-          </h2>
-          <p>
-            {presentation === "original"
-              ? "Complete the fields you want to explore."
-              : "The same approved fields, shown a section at a time."}
-          </p>
-        </div>
-        <span className="field-count">{FINANCIAL_FORM_FIELDS.length} demo fields</span>
-      </div>
-
-      {presentation === "original" ? (
-        <OriginalForm form={form} telemetry={events} />
-      ) : (
-        <AdaptiveRendererErrorBoundary
-          fallback={<OriginalForm form={form} telemetry={events} />}
-          onError={() => {
-            setRendererError(
-              "The adaptive layout could not be displayed. The original form is unchanged.",
-            );
-            setPresentation("original");
-          }}
+      <LazyMotion features={domAnimation}>
+        <m.div
+          className="presentation-content"
+          layout="position"
+          transition={layoutTransition}
         >
-          <WizardForm
-            form={form}
-            telemetry={events}
-            plan={activePlan}
-            stepIndex={wizardStepIndex}
-            setStepIndex={setWizardStepIndex}
-            completedSteps={completedSteps}
-            setCompletedSteps={setCompletedSteps}
-            onValidationFailure={() => {
-              setRendererError(
-                "The current step could not be validated. The original form is unchanged.",
-              );
-              setPresentation("original");
-            }}
-            onAnimationFailure={() =>
-              setRendererError(
-                "Step focus animation is unavailable. Keyboard navigation remains available.",
-              )
-            }
-          />
-        </AdaptiveRendererErrorBoundary>
-      )}
+          <div className="form-heading">
+            <div>
+              <h2 ref={presentationHeadingRef} tabIndex={-1}>
+                {presentation === "original"
+                  ? "Personal loan details"
+                  : "Step-by-step preview"}
+              </h2>
+              <p>
+                {presentation === "original"
+                  ? "Complete the fields you want to explore."
+                  : "The same approved fields, shown a section at a time."}
+              </p>
+            </div>
+            <span className="field-count">
+              {FINANCIAL_FORM_FIELDS.length} demo fields
+            </span>
+          </div>
+
+          {presentation === "original" ? (
+            <OriginalForm form={form} telemetry={events} />
+          ) : (
+            <AdaptiveRendererErrorBoundary
+              fallback={<OriginalForm form={form} telemetry={events} />}
+              onError={() => {
+                setRendererError(
+                  "The adaptive layout could not be displayed. The original form is unchanged.",
+                );
+                setPresentation("original");
+              }}
+            >
+              <WizardForm
+                form={form}
+                telemetry={events}
+                plan={activePlan}
+                stepIndex={wizardStepIndex}
+                setStepIndex={setWizardStepIndex}
+                completedSteps={completedSteps}
+                setCompletedSteps={setCompletedSteps}
+                onValidationFailure={() => {
+                  setRendererError(
+                    "The current step could not be validated. The original form is unchanged.",
+                  );
+                  setPresentation("original");
+                }}
+                onAnimationFailure={() =>
+                  setRendererError(
+                    "Step focus animation is unavailable. Keyboard navigation remains available.",
+                  )
+                }
+              />
+            </AdaptiveRendererErrorBoundary>
+          )}
+        </m.div>
+      </LazyMotion>
 
       <p className="telemetry-status" role="status" aria-live="polite">
         Telemetry service: {connectionStatus}
@@ -618,6 +669,7 @@ export function App() {
       <footer className="page-footer">
         <span>Aggregate telemetry only · No real application · No lending decision</span>
       </footer>
-    </main>
+      </main>
+    </MotionConfig>
   );
 }

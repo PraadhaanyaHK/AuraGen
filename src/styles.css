@@ -41,6 +41,23 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+.form-heading h2:focus,
+.wizard-form .form-section h2:focus {
+  border-radius: 3px;
+  outline: 3px solid rgb(40 112 206 / 35%);
+  outline-offset: 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .page-shell {
   width: min(100% - 40px, 980px);
   margin: 0 auto;
@@ -198,6 +215,7 @@ h1 {
 }
 
 .presentation-switch button {
+  min-height: 44px;
   padding: 8px 12px;
   border: 0;
   border-radius: 7px;
@@ -224,13 +242,17 @@ h1 {
 
 .automatic-adaptation-toggle {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 6px;
+  padding: 0 4px;
   color: #536276;
   font-size: 11px;
 }
 
 .automatic-adaptation-toggle input {
+  width: 18px;
+  height: 18px;
   accent-color: #2870ce;
 }
 
@@ -429,7 +451,7 @@ h1 {
 }
 
 .button {
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 16px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -630,5 +652,16 @@ h1 {
 
   .page-footer {
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

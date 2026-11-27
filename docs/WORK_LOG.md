@@ -209,6 +209,32 @@ It is not a verbatim transcript.
   build, `npm audit`, and `git diff --check` passed. The production bundle
   contained no `OPENAI_API_KEY` or `new Function` matches.
 
+## Week 3 - Task 3D day 4: Accessibility, motion, and pilot calibration
+
+- Added lightweight Framer Motion position and wizard-step transitions, using
+  reduced-motion preferences and no exit-wait or input-blocking state. Kept the
+  animation bundle within the existing build chunk limit with `LazyMotion`.
+- Improved focus restoration, first-invalid-field focus, visible focus on
+  programmatically focused headings, wizard progress announcements, and
+  accessible step instructions/errors. Increased interactive touch targets.
+- Added keyboard, focus, reduced-motion, accessible validation/progress, and
+  reproducible pilot-scenario regression coverage.
+- Added `docs/PILOT_CALIBRATION.md` with scripted completion times, errors,
+  repeated clicks, backtracks, adaptation frequency, original provisional
+  weights, false-positive controls, questionnaire suggestion, and limitations.
+- Synthetic replay scores: normal 11 (0/2 adaptations), moderate friction 50
+  (0/2), high friction 100 (1/2). Pointer-only activity scores 5 and does not
+  trigger; one prolonged unchanged pause scores 11 and does not trigger.
+  Existing filters and weights were not adjusted. IFS is documented as a
+  heuristic UX estimate, not a psychological diagnosis.
+- Browser verification covered 390px mobile and 1280px desktop widths,
+  reduced-motion and normal-motion preferences, keyboard step navigation,
+  focus restoration, overflow, and 44px targets. The browser context did not
+  provide touch emulation; physical touch-device validation remains a
+  limitation.
+- Verification: 78 tests passed across 8 files; typecheck, lint, production
+  build, and `git diff --check` passed.
+
 ## Next
 
 Wait for the user's next implementation task. Do not begin a later task or
